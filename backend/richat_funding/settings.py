@@ -146,7 +146,25 @@ CORS_ALLOWED_ORIGINS = [
 
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = DEBUG
-
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+        },
+        'main_app': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+    },
+}
 # Internationalization
 LANGUAGE_CODE = 'fr-fr'
 TIME_ZONE = 'UTC'

@@ -1,8 +1,11 @@
-import api from './api';
+// =============================================================================
+// SERVICE POUR LES NOTIFICATIONS
+// =============================================================================
+import { apiClient } from './api';
 
 export interface Notification {
   id: number;
-  type: string;
+  type: 'document' | 'project' | 'deadline' | 'assignment' | 'approval' | 'warning' | 'info' | 'success' | 'scraping';
   title: string;
   message: string;
   project_name?: string;
@@ -11,24 +14,49 @@ export interface Notification {
   time_ago: string;
 }
 
+export interface UnreadCountResponse {
+  unread_count: number;
+}
+
 class NotificationService {
   async getNotifications(): Promise<Notification[]> {
-    const response = await api.get('/notifications/');
-    return response.data.results || response.data;
-  }
-
-  async markAsRead(id: number): Promise<void> {
-    await api.post(`/notifications/${id}/mark_read/`);
-  }
-
-  async markAllAsRead(): Promise<void> {
-    await api.post('/notifications/mark_all_read/');
+    try {
+      const response = await apiClient.get<{ results: Notification[] }>('/notifications/');
+      return response.results || [];
+    } catch (error) {
+      console.error('Erreur lors du chargement des notifications:', error);
+      throw error;
+    }
   }
 
   async getUnreadCount(): Promise<number> {
-    const response = await api.get('/notifications/unread_count/');
-    return response.data.unread_count;
+    try {
+      const response = await apiClient.get<UnreadCountResponse>('/notifications/unread_count/');
+      return response.unread_count;
+    } catch (error) {
+      console.error('Erreur lors du chargement du nombre de notifications non lues:', error);
+      return 0;
+    }
+  }
+
+  async markAsRead(id: number): Promise<void> {
+    try {
+      await apiClient.post(`/notifications/${id}/mark_read/`);
+    } catch (error) {
+      console.error('Erreur lors du marquage de la notification comme lue:', error);
+      throw error;
+    }
+  }
+
+  async markAllAsRead(): Promise<void> {
+    try {
+      await apiClient.post('/notifications/mark_all_read/');
+    } catch (error) {
+      console.error('Erreur lors du marquage de toutes les notifications comme lues:', error);
+      throw error;
+    }
   }
 }
 
-export default new NotificationService();
+export const notificationService = new NotificationService();
+export default notificationService;

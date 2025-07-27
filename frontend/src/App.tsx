@@ -1,3 +1,6 @@
+// =============================================================================
+// APP.TSX MISE À JOUR AVEC LA ROUTE SCRAPED PROJECTS
+// =============================================================================
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -12,6 +15,9 @@ import SuivezAppels from "./pages/SuivezAppels";
 import DossiersCandidature from "./pages/DossiersCandidature";
 import Login from "./pages/Login";
 import Profile from "./pages/Profile";
+
+// Import de la nouvelle page pour les projets scrapés
+import ScrapedProjects from "./pages/ScrapedProjects";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -69,6 +75,13 @@ const App = () => (
             <Route path="/dossiers-candidature" element={
               <ProtectedRoute>
                 <DossiersCandidature />
+              </ProtectedRoute>
+            } />
+            
+            {/* NOUVELLE ROUTE pour les projets scrapés */}
+            <Route path="/scraped-projects" element={
+              <ProtectedRoute>
+                <ScrapedProjects />
               </ProtectedRoute>
             } />
             

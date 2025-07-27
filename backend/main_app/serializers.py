@@ -1,9 +1,11 @@
-# main_app/serializers.py 
 # =============================================================================
-# FICHIER: main_app/serializers.py - TOUS LES SERIALIZERS
+# FICHIER: main_app/serializers.py - SERIALIZERS COMPLETS AVEC SCRAPED PROJECTS
 # =============================================================================
 from rest_framework import serializers
-from .models import CustomUser, Project, Document, DocumentType, Notification
+from .models import (
+    CustomUser, Project, Document, DocumentType, Notification, 
+    ScrapedProject, ScrapingSession
+)
 
 # =============================================================================
 # SERIALIZERS POUR LES UTILISATEURS
@@ -38,6 +40,51 @@ class UserProfileSerializer(serializers.ModelSerializer):
         }
 
 # =============================================================================
+# SERIALIZERS POUR LES PROJETS SCRAPÉS
+# =============================================================================
+class ScrapedProjectSerializer(serializers.ModelSerializer):
+    source_display = serializers.CharField(source='get_source_display', read_only=True)
+    linked_project_name = serializers.CharField(source='linked_project.name', read_only=True)
+    can_create_project = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = ScrapedProject
+        fields = [
+            'id', 'title', 'source', 'source_display', 'source_url', 'source_id',
+            'description', 'organization', 'project_type', 'status',
+            'total_funding', 'funding_amount', 'currency', 'country', 'region',
+            'focal_areas', 'gef_project_id', 'gcf_document_type', 'cover_date',
+            'document_url', 'additional_links', 'scraped_at', 'last_updated',
+            'scraping_source', 'linked_project', 'linked_project_name',
+            'data_completeness_score', 'is_relevant_for_mauritania', 'needs_review',
+            'can_create_project'
+        ]
+        read_only_fields = ['scraped_at', 'last_updated', 'unique_hash']
+
+class ScrapedProjectCreateProjectSerializer(serializers.Serializer):
+    """Serializer pour créer un projet Django depuis un projet scrapé"""
+    consultant_id = serializers.IntegerField()
+    
+    def validate_consultant_id(self, value):
+        try:
+            consultant = CustomUser.objects.get(id=value, actif=True)
+            return value
+        except CustomUser.DoesNotExist:
+            raise serializers.ValidationError("Consultant non trouvé ou inactif")
+
+class ScrapingSessionSerializer(serializers.ModelSerializer):
+    source_display = serializers.CharField(source='get_source_display', read_only=True)
+    duration = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = ScrapingSession
+        fields = [
+            'id', 'source', 'source_display', 'started_at', 'completed_at',
+            'projects_found', 'projects_saved', 'projects_updated',
+            'success', 'error_message', 'max_pages', 'headless_mode', 'duration'
+        ]
+
+# =============================================================================
 # SERIALIZERS POUR LES DOCUMENTS
 # =============================================================================
 class DocumentTypeSerializer(serializers.ModelSerializer):
@@ -70,6 +117,7 @@ class ProjectSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     type_display = serializers.CharField(source='get_type_project_display', read_only=True)
     fund_display = serializers.CharField(source='get_fund_display', read_only=True)
+    has_scraped_source = serializers.ReadOnlyField()
     
     class Meta:
         model = Project
@@ -95,3 +143,33 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = ['id', 'type', 'title', 'message', 'project_name', 'read', 'created_at', 'time_ago']
+
+# =============================================================================
+# SERIALIZERS POUR LES STATISTIQUES
+# =============================================================================
+class DashboardStatsSerializer(serializers.Serializer):
+    """Serializer pour les statistiques du tableau de bord"""
+    total_projects = serializers.IntegerField()
+    ready_projects = serializers.IntegerField()
+    pending_projects = serializers.IntegerField()
+    avg_score = serializers.FloatField()
+    total_amount = serializers.DecimalField(max_digits=15, decimal_places=2)
+    
+    # Statistiques des projets scrapés
+    total_scraped = serializers.IntegerField()
+    scraped_by_source = serializers.DictField()
+    ready_for_conversion = serializers.IntegerField()
+    
+    # Sessions de scraping récentes
+    recent_scraping_sessions = ScrapingSessionSerializer(many=True)
+
+class ScrapedProjectStatsSerializer(serializers.Serializer):
+    """Statistiques spécifiques aux projets scrapés"""
+    total_scraped = serializers.IntegerField()
+    by_source = serializers.DictField()
+    by_completeness_score = serializers.DictField()
+    ready_projects = serializers.IntegerField()
+    linked_projects = serializers.IntegerField()
+    needs_review = serializers.IntegerField()
+    avg_completeness_score = serializers.FloatField()
+    recent_sessions = ScrapingSessionSerializer(many=True)
