@@ -1,6 +1,3 @@
-// =============================================================================
-// APP.TSX MISE À JOUR AVEC LA ROUTE SCRAPED PROJECTS
-// =============================================================================
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -8,30 +5,34 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
-// Import des pages existantes
+// Import des pages existantes (ADMIN)
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import SuivezAppels from "./pages/SuivezAppels";
 import DossiersCandidature from "./pages/DossiersCandidature";
 import Login from "./pages/Login";
 import Profile from "./pages/Profile";
-
-// Import de la nouvelle page pour les projets scrapés
 import ScrapedProjects from "./pages/ScrapedProjects";
+
+// Import de la nouvelle page CLIENT
+import ClientDashboard from "./pages/ClientDashboard";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
       refetchOnWindowFocus: false,
-      staleTime: 5 * 60 * 1000, // 5 minutes
+      staleTime: 5 * 60 * 1000,
     },
   },
 });
 
-// Composant de protection des routes
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+// Composant de protection des routes avec vérification de rôle
+const ProtectedRoute: React.FC<{ 
+  children: React.ReactNode;
+  requiredRole?: 'admin' | 'client';
+}> = ({ children, requiredRole }) => {
+  const { isAuthenticated, loading, user } = useAuth();
 
   if (loading) {
     return (
@@ -45,7 +46,27 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <Navigate to="/login" replace />;
   }
 
+  // Vérifier le rôle si spécifié
+  if (requiredRole && user?.role !== requiredRole) {
+    // Rediriger vers le dashboard approprié
+    const redirectPath = user?.is_admin ? '/' : '/client-dashboard';
+    return <Navigate to={redirectPath} replace />;
+  }
+
   return <>{children}</>;
+};
+
+// Composant de redirection automatique depuis la racine
+const DashboardRedirect: React.FC = () => {
+  const { user, isAuthenticated } = useAuth();
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Admin vers dashboard existant, Client vers nouveau dashboard
+  const redirectPath = user?.is_admin ? '/' : '/client-dashboard';
+  return <Navigate to={redirectPath} replace />;
 };
 
 const App = () => (
@@ -59,32 +80,39 @@ const App = () => (
             {/* Route de connexion - publique */}
             <Route path="/login" element={<Login />} />
             
-            {/* Routes protégées avec l'interface complète */}
+            {/* Routes ADMIN - utilisation de votre structure existante */}
             <Route path="/" element={
-              <ProtectedRoute>
+              <ProtectedRoute requiredRole="admin">
                 <Index />
               </ProtectedRoute>
             } />
             
             <Route path="/suivez-appels" element={
-              <ProtectedRoute>
+              <ProtectedRoute requiredRole="admin">
                 <SuivezAppels />
               </ProtectedRoute>
             } />
             
             <Route path="/dossiers-candidature" element={
-              <ProtectedRoute>
+              <ProtectedRoute requiredRole="admin">
                 <DossiersCandidature />
               </ProtectedRoute>
             } />
             
-            {/* NOUVELLE ROUTE pour les projets scrapés */}
             <Route path="/scraped-projects" element={
-              <ProtectedRoute>
+              <ProtectedRoute requiredRole="admin">
                 <ScrapedProjects />
               </ProtectedRoute>
             } />
             
+            {/* Route CLIENT - nouveau dashboard */}
+            <Route path="/client-dashboard" element={
+              <ProtectedRoute requiredRole="client">
+                <ClientDashboard />
+              </ProtectedRoute>
+            } />
+            
+            {/* Route profil - accessible aux deux rôles */}
             <Route path="/profile" element={
               <ProtectedRoute>
                 <Profile />

@@ -1,10 +1,13 @@
 # =============================================================================
-# FICHIER: main_app/serializers.py - SERIALIZERS COMPLETS AVEC SCRAPED PROJECTS
+# FICHIER: main_app/serializers.py - SERIALIZERS COMPLETS
 # =============================================================================
 from rest_framework import serializers
+from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
+from django.db import models
 from .models import (
     CustomUser, Project, Document, DocumentType, Notification, 
-    ScrapedProject, ScrapingSession
+    ScrapedProject, ScrapingSession, ProjectRequest
 )
 
 # =============================================================================
@@ -24,12 +27,19 @@ class UserSerializer(serializers.ModelSerializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     stats = serializers.SerializerMethodField()
     full_name = serializers.ReadOnlyField()
+    is_admin = serializers.ReadOnlyField()
+    is_client = serializers.ReadOnlyField()
+    role_display = serializers.CharField(source='get_role_display', read_only=True)
     
     class Meta:
         model = CustomUser
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'full_name',
-                 'phone', 'level', 'department', 'date_embauche', 'profile_picture', 'stats']
-        read_only_fields = ['username', 'level', 'department', 'date_embauche']
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
+            'initials', 'phone', 'company_name', 'role', 'role_display',
+            'level', 'department', 'date_embauche', 'profile_picture',
+            'is_admin', 'is_client', 'email_verified', 'date_joined', 'stats'
+        ]
+        read_only_fields = ['username', 'date_joined']
     
     def get_stats(self, obj):
         return {
@@ -38,6 +48,72 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'pending_projects': Project.objects.filter(consultant=obj, status='progress').count(),
             'success_rate': 95
         }
+
+class UserRegistrationSerializer(serializers.ModelSerializer):
+    """Serializer pour l'inscription - CLIENTS UNIQUEMENT"""
+    password = serializers.CharField(write_only=True, validators=[validate_password])
+    password_confirm = serializers.CharField(write_only=True)
+    
+    class Meta:
+        model = CustomUser
+        fields = [
+            'username', 'email', 'password', 'password_confirm',
+            'first_name', 'last_name', 'phone', 'company_name'
+        ]
+    
+    def validate(self, attrs):
+        if attrs['password'] != attrs['password_confirm']:
+            raise serializers.ValidationError("Les mots de passe ne correspondent pas")
+        
+        if CustomUser.objects.filter(email=attrs['email']).exists():
+            raise serializers.ValidationError("Cet email est déjà utilisé")
+            
+        if CustomUser.objects.filter(username=attrs['username']).exists():
+            raise serializers.ValidationError("Ce nom d'utilisateur est déjà pris")
+        
+        return attrs
+    
+    def create(self, validated_data):
+        validated_data.pop('password_confirm')
+        password = validated_data.pop('password')
+        
+        user = CustomUser.objects.create_user(
+            password=password,
+            role='client',
+            level='N1',
+            **validated_data
+        )
+        return user
+
+class UserLoginSerializer(serializers.Serializer):
+    """Serializer pour la connexion"""
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True)
+    
+    def validate(self, attrs):
+        username = attrs.get('username')
+        password = attrs.get('password')
+        
+        if username and password:
+            if '@' in username:
+                try:
+                    user_obj = CustomUser.objects.get(email=username)
+                    username = user_obj.username
+                except CustomUser.DoesNotExist:
+                    pass
+            
+            user = authenticate(username=username, password=password)
+            
+            if not user:
+                raise serializers.ValidationError("Identifiants incorrects")
+            
+            if not user.is_active:
+                raise serializers.ValidationError("Compte désactivé")
+            
+            attrs['user'] = user
+            return attrs
+        else:
+            raise serializers.ValidationError("Username et password requis")
 
 # =============================================================================
 # SERIALIZERS POUR LES PROJETS SCRAPÉS
@@ -105,7 +181,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         read_only_fields = ['uploaded_by_name']
 
 # =============================================================================
-# SERIALIZERS POUR LES PROJETS
+# SERIALIZERS POUR LES PROJETS DJANGO
 # =============================================================================
 class ProjectSerializer(serializers.ModelSerializer):
     consultant_details = UserSerializer(source='consultant', read_only=True)
@@ -129,6 +205,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         return DocumentSerializer(submitted_docs, many=True).data
 
 class ProjectCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer pour créer/modifier un projet"""
     class Meta:
         model = Project
         exclude = ['created_at', 'updated_at']
@@ -143,6 +220,95 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = ['id', 'type', 'title', 'message', 'project_name', 'read', 'created_at', 'time_ago']
+
+# =============================================================================
+# SERIALIZERS POUR LES DEMANDES DE PROJETS
+# =============================================================================
+class ProjectRequestSerializer(serializers.ModelSerializer):
+    client_name = serializers.CharField(source='client.full_name', read_only=True)
+    client_company = serializers.CharField(source='client.company_name', read_only=True)
+    projects_count = serializers.ReadOnlyField()
+    total_funding_requested = serializers.ReadOnlyField()
+    time_since_request = serializers.ReadOnlyField()
+    projects_details = ScrapedProjectSerializer(source='projects', many=True, read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    processed_by_name = serializers.CharField(source='processed_by.full_name', read_only=True)
+    
+    class Meta:
+        model = ProjectRequest
+        fields = [
+            'id', 'client', 'client_name', 'client_company', 'message', 
+            'status', 'status_display', 'client_info', 'admin_response',
+            'processed_by', 'processed_by_name', 'processed_at', 'created_at', 
+            'updated_at', 'priority_score', 'projects_count', 
+            'total_funding_requested', 'time_since_request', 'projects_details'
+        ]
+        read_only_fields = ['processed_by', 'processed_at', 'priority_score']
+
+# =============================================================================
+# CORRECTION DU SERIALIZER ProjectRequestCreateSerializer
+# =============================================================================
+
+class ProjectRequestCreateSerializer(serializers.ModelSerializer):
+    project_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True
+    )
+    client_id = serializers.IntegerField(write_only=True)
+    
+    class Meta:
+        model = ProjectRequest
+        fields = ['client_id', 'project_ids', 'message', 'client_info']
+    
+    def create(self, validated_data):
+        project_ids = validated_data.pop('project_ids')
+        client_id = validated_data.pop('client_id')
+        
+        # Vérifier que le client existe
+        try:
+            client = CustomUser.objects.get(id=client_id, role='client')
+        except CustomUser.DoesNotExist:
+            raise serializers.ValidationError("Client non trouvé")
+        
+        # Créer la demande
+        request = ProjectRequest.objects.create(
+            client=client,
+            **validated_data
+        )
+        
+        # Ajouter les projets
+        projects = ScrapedProject.objects.filter(
+            id__in=project_ids,
+            linked_project__isnull=True  # Seulement les projets non liés
+        )
+        request.projects.set(projects)
+        
+        # Calculer et sauvegarder le score de priorité
+        request.priority_score = request.calculate_priority_score()
+        request.save()
+        
+        # NOUVEAU : Créer des notifications pour les admins
+        self.create_admin_notifications(request)
+        
+        return request
+    
+    def create_admin_notifications(self, project_request):
+        """Créer des notifications pour tous les administrateurs"""
+        from .models import Notification, CustomUser
+        
+        # Récupérer tous les administrateurs actifs
+        admins = CustomUser.objects.filter(role='admin', actif=True)
+        
+        # Créer une notification pour chaque admin
+        for admin in admins:
+            Notification.objects.create(
+                type='request',
+                title='🔔 Nouvelle demande client',
+                message=f'Le client {project_request.client.full_name} ({project_request.client.company_name}) a soumis une demande pour {project_request.projects_count} projet(s). Priorité: {project_request.priority_score}/100',
+                consultant=admin,
+                project_request=project_request,
+                read=False
+            )
 
 # =============================================================================
 # SERIALIZERS POUR LES STATISTIQUES

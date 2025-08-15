@@ -12,6 +12,13 @@ import hashlib
 # MODÈLE UTILISATEUR PERSONNALISÉ
 # =============================================================================
 class CustomUser(AbstractUser):
+    """Modèle utilisateur personnalisé avec rôles"""
+    
+    ROLE_CHOICES = [
+        ('admin', 'Administrateur'),
+        ('client', 'Client/Entreprise'),
+    ]
+    
     LEVEL_CHOICES = [
         ('N1', 'Niveau 1'),
         ('N2', 'Niveau 2'),
@@ -19,21 +26,70 @@ class CustomUser(AbstractUser):
         ('N4', 'Niveau 4'),
     ]
     
-    level = models.CharField(max_length=2, choices=LEVEL_CHOICES, default='N1', verbose_name="Niveau")
+    # Informations de base
+    role = models.CharField(
+        max_length=10, 
+        choices=ROLE_CHOICES, 
+        default='client',
+        verbose_name="Rôle"
+    )
+    level = models.CharField(
+        max_length=2, 
+        choices=LEVEL_CHOICES, 
+        default='N1', 
+        verbose_name="Niveau"
+    )
+    
+    # Informations personnelles
     phone = models.CharField(max_length=20, blank=True, verbose_name="Téléphone")
+    company_name = models.CharField(max_length=200, blank=True, verbose_name="Nom de l'entreprise")
     department = models.CharField(max_length=100, default='Financements Publics', verbose_name="Département")
+    
+    # Dates
     date_embauche = models.DateField(null=True, blank=True, verbose_name="Date d'embauche")
+    date_joined = models.DateTimeField(default=timezone.now, verbose_name="Date d'inscription")
+    
+    # Statut
     actif = models.BooleanField(default=True, verbose_name="Actif")
+    email_verified = models.BooleanField(default=False, verbose_name="Email vérifié")
     profile_picture = models.ImageField(upload_to='profiles/', null=True, blank=True, verbose_name="Photo de profil")
-
+    
+    # Métadonnées
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_login_ip = models.GenericIPAddressField(null=True, blank=True)
+    
+    class Meta:
+        verbose_name = "Utilisateur"
+        verbose_name_plural = "Utilisateurs"
+        ordering = ['-date_joined']
+    
     @property
     def full_name(self):
-        return f"{self.first_name} {self.last_name}".strip()
+        """Retourne le nom complet"""
+        if self.first_name and self.last_name:
+            return f"{self.first_name} {self.last_name}"
+        return self.username
     
     @property
     def initials(self):
-        return f"{self.first_name[:1]}{self.last_name[:1]}".upper() if self.first_name and self.last_name else self.username[:2].upper()
-
+        """Retourne les initiales"""
+        if self.first_name and self.last_name:
+            return f"{self.first_name[0]}{self.last_name[0]}".upper()
+        return self.username[:2].upper()
+    
+    @property
+    def is_admin(self):
+        """Vérifie si l'utilisateur est administrateur"""
+        return self.role == 'admin'
+    
+    @property
+    def is_client(self):
+        """Vérifie si l'utilisateur est client"""
+        return self.role == 'client'
+    
+    def __str__(self):
+        return f"{self.full_name} ({self.get_role_display()})"
 # =============================================================================
 # MODÈLE POUR LES PROJETS SCRAPÉS
 # =============================================================================
@@ -337,6 +393,9 @@ class Notification(models.Model):
         ('info', 'Information'),
         ('success', 'Succès'),
         ('scraping', 'Données scrapées'),
+        ('request', 'Demande client'),  # NOUVEAU
+        ('request_approved', 'Demande approuvée'),  # NOUVEAU
+        ('request_rejected', 'Demande rejetée'),  # NOUVEAU
     ]
     
     type = models.CharField(max_length=20, choices=TYPE_CHOICES, verbose_name="Type")
@@ -346,7 +405,14 @@ class Notification(models.Model):
     consultant = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='notifications', verbose_name="Consultant")
     read = models.BooleanField(default=False, verbose_name="Lu")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Créé le")
-    
+    project_request = models.ForeignKey(
+        'ProjectRequest',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='notifications',
+        verbose_name="Demande liée"
+    )
     class Meta:
         ordering = ['-created_at']
         verbose_name = "Notification"
@@ -410,3 +476,243 @@ class ScrapingSession(models.Model):
         if self.completed_at:
             return self.completed_at - self.started_at
         return None
+
+class ProjectRequest(models.Model):
+    """Modèle pour les demandes de projets des clients"""
+    STATUS_CHOICES = [
+        ('pending', 'En attente'),
+        ('approved', 'Approuvée'),
+        ('rejected', 'Rejetée'),
+        ('in_progress', 'En cours de traitement'),
+    ]
+
+    # Informations de base
+    client = models.ForeignKey(
+        CustomUser, 
+        on_delete=models.CASCADE, 
+        related_name='project_requests',
+        verbose_name="Client"
+    )
+    projects = models.ManyToManyField(
+        ScrapedProject,
+        related_name='requests',
+        verbose_name="Projets demandés"
+    )
+    
+    # Contenu de la demande
+    message = models.TextField(verbose_name="Message du client")
+    status = models.CharField(
+        max_length=20, 
+        choices=STATUS_CHOICES, 
+        default='pending',
+        verbose_name="Statut"
+    )
+    
+    # Informations client (snapshot au moment de la demande)
+    client_info = models.JSONField(default=dict, verbose_name="Info client")
+    
+    # Traitement admin
+    admin_response = models.TextField(blank=True, verbose_name="Réponse admin")
+    processed_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='processed_requests',
+        verbose_name="Traité par"
+    )
+    processed_at = models.DateTimeField(null=True, blank=True, verbose_name="Traité le")
+    
+    # Métadonnées
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Créé le")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Mis à jour le")
+    
+    # Priorité (calculée automatiquement)
+    priority_score = models.IntegerField(default=0, verbose_name="Score de priorité")
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Demande de projet"
+        verbose_name_plural = "Demandes de projets"
+    
+    def __str__(self):
+        return f"Demande #{self.id} - {self.client.full_name} ({self.get_status_display()})"
+    
+    @property
+    def projects_count(self):
+        """Nombre de projets demandés"""
+        return self.projects.count()
+    
+    @property
+    def total_funding_requested(self):
+        """Montant total des financements demandés"""
+        from django.db.models import Sum
+        total = self.projects.aggregate(
+            total=Sum('funding_amount')
+        )['total'] or 0
+        return total
+    
+    @property
+    def time_since_request(self):
+        """Temps écoulé depuis la demande"""
+        from django.utils import timezone
+        diff = timezone.now() - self.created_at
+        
+        if diff.days > 0:
+            return f"{diff.days} jour{'s' if diff.days > 1 else ''}"
+        elif diff.seconds > 3600:
+            hours = diff.seconds // 3600
+            return f"{hours} heure{'s' if hours > 1 else ''}"
+        else:
+            minutes = diff.seconds // 60
+            return f"{minutes} minute{'s' if minutes > 1 else ''}"
+    
+    def calculate_priority_score(self):
+        """Calcule un score de priorité basé sur plusieurs critères"""
+        score = 0
+        
+        # Nombre de projets (plus = plus prioritaire)
+        score += min(self.projects_count * 10, 50)
+        
+        # Montant total (plus élevé = plus prioritaire)
+        total_funding = self.total_funding_requested
+        if total_funding > 1000000:
+            score += 30
+        elif total_funding > 500000:
+            score += 20
+        elif total_funding > 100000:
+            score += 10
+        
+        # Qualité des données des projets
+        avg_completeness = self.projects.aggregate(
+            avg_score=models.Avg('data_completeness_score')
+        )['avg_score'] or 0
+        score += int(avg_completeness / 10)
+        
+        # Ancienneté de la demande (plus ancien = plus prioritaire)
+        days_old = (timezone.now() - self.created_at).days
+        score += min(days_old * 2, 20)
+        
+        return min(score, 100)  # Max 100
+    
+    def save(self, *args, **kwargs):
+        """Override save pour calculer le score et créer les notifications"""
+        # Vérifier si c'est une nouvelle demande
+        is_new = self.pk is None
+        
+        # Calculer le score de priorité avant sauvegarde (seulement si l'objet existe déjà)
+        if self.pk:
+            self.priority_score = self.calculate_priority_score()
+        
+        # Sauvegarder l'objet
+        super().save(*args, **kwargs)
+        
+        # Créer des notifications pour les admins si c'est une nouvelle demande
+        if is_new:
+            self.create_admin_notification()
+    
+    def create_admin_notification(self):
+        """Créer une notification pour tous les administrateurs"""
+        # Récupérer tous les administrateurs actifs
+        admins = CustomUser.objects.filter(role='admin', actif=True)
+        
+        # Créer une notification pour chaque admin
+        for admin in admins:
+            Notification.objects.create(
+                type='request',
+                title='🔔 Nouvelle demande client',
+                message=f'Le client {self.client.full_name} ({self.client.company_name or "Entreprise non spécifiée"}) a soumis une demande pour {self.projects_count} projet(s). Priorité: {self.priority_score}/100',
+                consultant=admin,
+                project_request=self,
+                read=False
+            )
+    
+    def approve(self, admin_user, response_message=""):
+        """Approuver la demande"""
+        self.status = 'approved'
+        self.processed_by = admin_user
+        self.processed_at = timezone.now()
+        self.admin_response = response_message
+        self.save()
+        
+        # Créer une notification pour le client
+        Notification.objects.create(
+            type='request_approved',
+            title='✅ Demande approuvée',
+            message=f'Excellente nouvelle ! Votre demande de {self.projects_count} projet(s) a été approuvée. Notre équipe va vous contacter sous 48h pour débuter l\'accompagnement.',
+            consultant=self.client,
+            project_request=self,
+            read=False
+        )
+    
+    def reject(self, admin_user, response_message):
+        """Rejeter la demande"""
+        self.status = 'rejected'
+        self.processed_by = admin_user
+        self.processed_at = timezone.now()
+        self.admin_response = response_message
+        self.save()
+        
+        # Créer une notification pour le client
+        Notification.objects.create(
+            type='request_rejected',
+            title='❌ Demande rejetée',
+            message=f'Votre demande a été examinée par notre équipe. Motif: {response_message[:100]}{"..." if len(response_message) > 100 else ""}',
+            consultant=self.client,
+            project_request=self,
+            read=False
+        )
+    
+    def set_in_progress(self, admin_user):
+        """Marquer la demande comme en cours de traitement"""
+        self.status = 'in_progress'
+        self.processed_by = admin_user
+        self.processed_at = timezone.now()
+        self.save()
+        
+        # Créer une notification pour le client
+        Notification.objects.create(
+            type='info',
+            title='🔄 Demande en cours de traitement',
+            message=f'Votre demande de {self.projects_count} projet(s) est maintenant en cours d\'examen par notre équipe. Nous vous tiendrons informé de l\'avancement.',
+            consultant=self.client,
+            project_request=self,
+            read=False
+        )
+    
+    def get_priority_level(self):
+        """Retourne le niveau de priorité en texte"""
+        if self.priority_score >= 80:
+            return "Très haute"
+        elif self.priority_score >= 60:
+            return "Haute"
+        elif self.priority_score >= 40:
+            return "Moyenne"
+        else:
+            return "Basse"
+    
+    def get_priority_color(self):
+        """Retourne la couleur CSS pour la priorité"""
+        if self.priority_score >= 80:
+            return "text-red-600 bg-red-50"
+        elif self.priority_score >= 60:
+            return "text-orange-600 bg-orange-50"
+        elif self.priority_score >= 40:
+            return "text-yellow-600 bg-yellow-50"
+        else:
+            return "text-green-600 bg-green-50"
+    
+    def can_be_processed(self):
+        """Vérifie si la demande peut être traitée"""
+        return self.status == 'pending' and self.projects_count > 0
+    
+    def get_estimated_processing_time(self):
+        """Estime le temps de traitement basé sur la priorité"""
+        if self.priority_score >= 80:
+            return "24-48h"
+        elif self.priority_score >= 60:
+            return "2-3 jours"
+        elif self.priority_score >= 40:
+            return "3-5 jours"
+        else:
+            return "5-7 jours"
