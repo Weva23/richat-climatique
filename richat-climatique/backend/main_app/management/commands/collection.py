@@ -186,9 +186,77 @@ class Command(BaseCommand):
             
             # Étape 4: Notifications
             if new_projects > 0:
+                # Créer des notifications pour tous les utilisateurs consultants
+                self.create_scraping_notifications(new_projects, climate_funds_only)
+                # Envoyer email
                 self.send_notification_email(new_projects, email_recipients, climate_funds_only)
 
         self.stdout.write(self.style.SUCCESS("🎉 Collection terminée avec succès!"))
+
+    def create_scraping_notifications(self, new_projects_count, climate_funds_only=False):
+        """Crée des notifications de scraping pour tous les consultants"""
+        try:
+            # Importer le modèle Notification et User ici pour éviter les problèmes d'import
+            from main_app.models import Notification, CustomUser
+            
+            # Obtenir tous les consultants (utilisateurs actifs)
+            consultants = CustomUser.objects.filter(is_active=True)
+            
+            if climate_funds_only:
+                title = f"🌍 {new_projects_count} nouveaux fonds climatiques globaux"
+                message = f"""
+Nouveaux fonds climatiques collectés avec succès !
+
+📊 Détails:
+• {new_projects_count} nouveaux fonds climatiques globaux
+• Source: Climate Funds Update
+• Disponibles pour financement de projets climatiques
+• Accès via l'interface projets scrapés
+
+💡 Ces fonds représentent de nouvelles opportunités de financement pour vos projets environnementaux et climatiques.
+
+🔍 Consultez la section "Projets Scrapés" pour explorer ces nouvelles opportunités.
+                """.strip()
+            else:
+                title = f"📊 {new_projects_count} nouveaux projets/fonds scrapés"
+                message = f"""
+Nouvelle collecte de données terminée avec succès !
+
+📈 Résultats:
+• {new_projects_count} nouveaux projets et fonds ajoutés
+• Sources: GEF, GCF, OECD, Climate Funds
+• Données mises à jour automatiquement
+• Vérification des doublons effectuée
+
+💼 Ces nouvelles données incluent des projets environnementaux, des fonds climatiques et des opportunités de financement pertinentes pour la Mauritanie.
+
+🔍 Consultez la section "Projets Scrapés" pour explorer ces nouvelles données.
+                """.strip()
+            
+            # Créer une notification pour chaque consultant
+            notifications_created = 0
+            for consultant in consultants:
+                try:
+                    notification = Notification.objects.create(
+                        type='scraping',
+                        title=title,
+                        message=message,
+                        consultant=consultant,
+                        read=False
+                    )
+                    notifications_created += 1
+                except Exception as e:
+                    self.stdout.write(f"⚠️ Erreur création notification pour {consultant.username}: {e}")
+            
+            self.stdout.write(f"✅ {notifications_created} notifications de scraping créées pour {len(consultants)} consultants")
+            
+        except ImportError as e:
+            self.stdout.write(f"⚠️ Impossible d'importer les modèles Django: {e}")
+        except Exception as e:
+            self.stdout.write(f"⚠️ Erreur création notifications: {e}")
+
+    # ... [Garder toutes les autres méthodes existantes sans modification] ...
+    # load_and_validate_files, process_climate_funds_data, prepare_dataframe, etc.
 
     def load_and_validate_files(self, fichiers_a_traiter):
         """Charge et valide les fichiers Excel avec support spécial pour Climate Funds"""
@@ -625,7 +693,7 @@ class Command(BaseCommand):
         # Supprimer seulement les lignes vraiment invalides (très permissif)
         initial_count = len(df)
         df = df[df['title'].str.len() > 2]  # Très permissif: 2 caractères minimum
-        df = df[~df['title'].str.contains('^(nan|None|null|NaN)$', case=False, na=False, regex=True)]
+        df = df[~df['title'].str.contains(r'^(nan|None|null|NaN)', case=False, na=False, regex=True)]
         removed_count = initial_count - len(df)
         
         if removed_count > 0:
@@ -836,36 +904,6 @@ class Command(BaseCommand):
             new_projects_df = pd.DataFrame(truly_new_projects)
             self.stdout.write(f"\n🆕 {len(new_projects_df)} éléments uniques détectés pour importation")
 
-            # Afficher un aperçu des nouveaux éléments par source
-            self.stdout.write(f"\n📋 APERÇU DES NOUVEAUX ÉLÉMENTS:")
-            self.stdout.write("-" * 80)
-            
-            for source in ['CLIMATE_FUND', 'GEF', 'GCF', 'OTHER']:
-                source_df = new_projects_df[new_projects_df['source'] == source]
-                if len(source_df) > 0:
-                    source_name = {
-                        'GEF': 'GEF (Projets Mauritanie)',
-                        'GCF': 'GCF (Projets Mauritanie)', 
-                        'OTHER': 'OECD/Autres (Mauritanie)',
-                        'CLIMATE_FUND': 'Climate Funds (Global)'
-                    }.get(source, source)
-                    
-                    self.stdout.write(f"\n🌟 {source_name} - {len(source_df)} éléments:")
-                    for i, (_, row) in enumerate(source_df.head(3).iterrows(), 1):
-                        title_display = row['title'][:70] if len(row['title']) > 70 else row['title']
-                        self.stdout.write(f"   {i}. {title_display}")
-                        if row.get('organization'):
-                            org_display = row['organization'][:50] if len(row['organization']) > 50 else row['organization']
-                            self.stdout.write(f"      Org: {org_display}")
-                        funding = row.get('total_funding', '')
-                        if funding:
-                            funding_display = funding[:30] if len(funding) > 30 else funding
-                            self.stdout.write(f"      💰 {funding_display}")
-                        self.stdout.write(f"      📊 Score: {row.get('data_completeness_score', 0)}% | Révision: {'Oui' if row.get('needs_review') else 'Non'}")
-                    
-                    if len(source_df) > 3:
-                        self.stdout.write(f"   ... et {len(source_df) - 3} autres éléments")
-
             # Préparer les colonnes pour l'insertion
             cols_to_insert = [c for c in self.COLUMNS_IN_DB if c in new_projects_df.columns]
             df_to_insert = new_projects_df[cols_to_insert]
@@ -918,18 +956,6 @@ class Command(BaseCommand):
             self.stdout.write(f"   ⚠️ Doublons évidents évités: {total_duplicates}")
             self.stdout.write(f"   📈 Taux de réussite: {success_count}/{total_processed} ({success_count/total_processed*100:.1f}%)")
             
-            # Statistiques détaillées par source
-            self.stdout.write(f"\n📋 DÉTAIL PAR SOURCE (nouveaux importés):")
-            for source, stats in stats_by_source.items():
-                if stats['new'] > 0:
-                    source_name = {
-                        'GEF': 'GEF (Projets Mauritanie)',
-                        'GCF': 'GCF (Projets Mauritanie)', 
-                        'OTHER': 'OECD/Autres (Mauritanie)',
-                        'CLIMATE_FUND': 'Climate Funds (Global)'
-                    }.get(source, source)
-                    self.stdout.write(f"   • {source_name}: {stats['new']} éléments")
-            
             if errors:
                 self.stdout.write(f"   ❌ Erreurs: {len(errors)}")
                 for error in errors[:3]:
@@ -950,7 +976,7 @@ class Command(BaseCommand):
             return 0
 
     def generate_import_statistics(self, engine, new_count):
-        """Génère des statistiques après importation avec correction du problème CLIMATE_FU"""
+        """Génère des statistiques après importation"""
         try:
             with engine.connect() as conn:
                 # Statistiques globales
@@ -1036,49 +1062,11 @@ class Command(BaseCommand):
                 source_counts = {}
                 climate_funds_total = 0
             
-            if climate_funds_only:
-                message = f"""
-🌍 NOUVEAUX FONDS CLIMATIQUES GLOBAUX - COLLECTION SPÉCIALISÉE
+            # Message d'email adapté
+            message = f"""
+🌍 NOUVEAUX PROJETS/FONDS SCRAPÉS - COLLECTION RÉUSSIE
 
-📊 COLLECTION RÉUSSIE:
-• Nouveaux fonds climatiques collectés: {count}
-• Total fonds climatiques en base: {climate_funds_total}
-• Total général en base Django: {total_count}
-• Modèle: ScrapedProject (main_app_scrapedproject)
-
-🌍 FONDS CLIMATIQUES GLOBAUX:
-• Source: Climate Funds Update (climatefundsupdate.org)
-• Portée: Fonds disponibles mondialement
-• Pertinence: Opportunités de financement pour projets en Mauritanie
-• Type: CLIMATE_FUND dans la base de données
-
-🎯 CARACTÉRISTIQUES DES FONDS:
-• Score de complétude très élevé (90%+)
-• Description avec montants détaillés (Pledged, Deposited, etc.)
-• Liens directs vers les pages des fonds
-• Marquage spécial [CLIMATE FUND] dans le titre
-
-💻 ACCÈS:
-• Admin Django: /admin/main_app/scrapedproject/?source__exact=CLIMATE_FUND
-• API REST: /api/scraped-projects/?source=CLIMATE_FUND
-• Interface React: Filtrer par source "CLIMATE_FUND"
-
-📝 PROCHAINES ÉTAPES:
-1. Explorer les opportunités de financement pour la Mauritanie
-2. Analyser les critères d'éligibilité des différents fonds
-3. Identifier les fonds les plus pertinents pour vos projets
-4. Développer des propositions de projet adaptées
-
----
-Collection spécialisée fonds climatiques globaux
-Date: {datetime.now().strftime('%d/%m/%Y %H:%M')}
-Base: {self.DB_CONFIG['database']} - Table: {self.DB_CONFIG['main_table']}
-                """
-            else:
-                message = f"""
-🌍 NOUVEAUX PROJETS/FONDS SCRAPÉS - MAURITANIE + GLOBAL
-
-📊 COLLECTION RÉUSSIE:
+📊 RÉSULTATS:
 • Nouveaux éléments collectés: {count}
 • Total en base Django: {total_count}
 • Modèle: ScrapedProject (main_app_scrapedproject)
@@ -1089,41 +1077,22 @@ Base: {self.DB_CONFIG['database']} - Table: {self.DB_CONFIG['main_table']}
 • OECD/Autres (Mauritanie): {source_counts.get('OTHER', 0)} documents
 • Climate Funds (Global): {source_counts.get('CLIMATE_FUND', 0)} fonds
 
-🌍 FONDS CLIMATIQUES GLOBAUX:
-• Total fonds en base: {climate_funds_total}
-• Source: Climate Funds Update (climatefundsupdate.org)
-• Pertinence: Fonds disponibles pour projets en Mauritanie
-
-🎯 SOURCES COLLECTÉES:
-• GEF (Global Environment Facility): Projets environnementaux globaux
-• GCF (Green Climate Fund): Projets de financement climatique
-• OECD: Organisation for Economic Co-operation and Development
-• Climate Funds Update: Base de données globale des fonds climatiques
-
 ✅ FONCTIONNALITÉS AUTOMATIQUES:
 • Score de complétude calculé (0-100%)
 • Détection intelligente des doublons
-• Marquage automatique des projets nécessitant révision
+• Notifications créées pour tous les consultants
 • Hash unique pour éviter les duplicatas
-• Support spécial pour fonds climatiques globaux
 
 💻 ACCÈS:
 • Admin Django: /admin/main_app/scrapedproject/
 • API REST: /api/scraped-projects/
 • Interface React: Composant ScrapedProjectsDisplay
-• Filtrage par source: GEF, GCF, OTHER, CLIMATE_FUND
-
-📝 PROCHAINES ÉTAPES:
-1. Réviser les projets marqués "needs_review"
-2. Vérifier les scores de complétude faibles (<50%)
-3. Valider les nouveaux projets GEF/GCF
-4. Explorer les opportunités des fonds climatiques globaux
 
 ---
-Système de collection automatisé - Aucun projet/fonds légitime perdu
+Collection automatisée terminée avec succès
 Date: {datetime.now().strftime('%d/%m/%Y %H:%M')}
 Base: {self.DB_CONFIG['database']} - Table: {self.DB_CONFIG['main_table']}
-                """
+            """
 
             send_mail(
                 subject=subject,
