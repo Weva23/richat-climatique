@@ -33,7 +33,7 @@ class Command(BaseCommand):
             'port': '3306',
             'database': 'richat_funding_db',
             'main_table': 'main_app_scrapedproject',
-            'notification_table': 'main_app_notification'
+            'notification_table': 'main_app_projectalert'
         }
 
         self.SCRAPED_DATA_DIR = Path(settings.BASE_DIR) / 'scraped_data'
@@ -186,77 +186,9 @@ class Command(BaseCommand):
             
             # Étape 4: Notifications
             if new_projects > 0:
-                # Créer des notifications pour tous les utilisateurs consultants
-                self.create_scraping_notifications(new_projects, climate_funds_only)
-                # Envoyer email
                 self.send_notification_email(new_projects, email_recipients, climate_funds_only)
 
         self.stdout.write(self.style.SUCCESS("🎉 Collection terminée avec succès!"))
-
-    def create_scraping_notifications(self, new_projects_count, climate_funds_only=False):
-        """Crée des notifications de scraping pour tous les consultants"""
-        try:
-            # Importer le modèle Notification et User ici pour éviter les problèmes d'import
-            from main_app.models import Notification, CustomUser
-            
-            # Obtenir tous les consultants (utilisateurs actifs)
-            consultants = CustomUser.objects.filter(is_active=True)
-            
-            if climate_funds_only:
-                title = f"🌍 {new_projects_count} nouveaux fonds climatiques globaux"
-                message = f"""
-Nouveaux fonds climatiques collectés avec succès !
-
-📊 Détails:
-• {new_projects_count} nouveaux fonds climatiques globaux
-• Source: Climate Funds Update
-• Disponibles pour financement de projets climatiques
-• Accès via l'interface projets scrapés
-
-💡 Ces fonds représentent de nouvelles opportunités de financement pour vos projets environnementaux et climatiques.
-
-🔍 Consultez la section "Projets Scrapés" pour explorer ces nouvelles opportunités.
-                """.strip()
-            else:
-                title = f"📊 {new_projects_count} nouveaux projets/fonds scrapés"
-                message = f"""
-Nouvelle collecte de données terminée avec succès !
-
-📈 Résultats:
-• {new_projects_count} nouveaux projets et fonds ajoutés
-• Sources: GEF, GCF, OECD, Climate Funds
-• Données mises à jour automatiquement
-• Vérification des doublons effectuée
-
-💼 Ces nouvelles données incluent des projets environnementaux, des fonds climatiques et des opportunités de financement pertinentes pour la Mauritanie.
-
-🔍 Consultez la section "Projets Scrapés" pour explorer ces nouvelles données.
-                """.strip()
-            
-            # Créer une notification pour chaque consultant
-            notifications_created = 0
-            for consultant in consultants:
-                try:
-                    notification = Notification.objects.create(
-                        type='scraping',
-                        title=title,
-                        message=message,
-                        consultant=consultant,
-                        read=False
-                    )
-                    notifications_created += 1
-                except Exception as e:
-                    self.stdout.write(f"⚠️ Erreur création notification pour {consultant.username}: {e}")
-            
-            self.stdout.write(f"✅ {notifications_created} notifications de scraping créées pour {len(consultants)} consultants")
-            
-        except ImportError as e:
-            self.stdout.write(f"⚠️ Impossible d'importer les modèles Django: {e}")
-        except Exception as e:
-            self.stdout.write(f"⚠️ Erreur création notifications: {e}")
-
-    # ... [Garder toutes les autres méthodes existantes sans modification] ...
-    # load_and_validate_files, process_climate_funds_data, prepare_dataframe, etc.
 
     def load_and_validate_files(self, fichiers_a_traiter):
         """Charge et valide les fichiers Excel avec support spécial pour Climate Funds"""
@@ -312,7 +244,7 @@ Nouvelle collecte de données terminée avec succès !
         """Traitement spécial pour les données Climate Funds Global"""
         self.stdout.write("   🌍 Traitement spécial des fonds climatiques globaux...")
         
-        # Mapping spécifique pour Climate Funds - CORRIGÉ
+        # Mapping spécifique pour Climate Funds
         climate_fund_mapping = {
             'Fund Name': 'title',
             'Fund URL': 'additional_links',
@@ -693,7 +625,7 @@ Nouvelle collecte de données terminée avec succès !
         # Supprimer seulement les lignes vraiment invalides (très permissif)
         initial_count = len(df)
         df = df[df['title'].str.len() > 2]  # Très permissif: 2 caractères minimum
-        df = df[~df['title'].str.contains(r'^(nan|None|null|NaN)', case=False, na=False, regex=True)]
+        df = df[~df['title'].str.contains('^(nan|None|null|NaN)$', case=False, na=False, regex=True)]
         removed_count = initial_count - len(df)
         
         if removed_count > 0:
@@ -804,7 +736,142 @@ Nouvelle collecte de données terminée avec succès !
             
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"❌ Erreur simulation: {str(e)}"))
+    
+    def create_project_alerts(self, new_projects_df):
+        """Créer des alertes pour les nouveaux projets"""
+        alerts_created = 0
+        high_priority_alerts = 0
+    
+        try:
+            from main_app.models import ProjectAlert, ScrapedProject
+        
+            for _, row in new_projects_df.iterrows():
+                try:
+                    # Récupérer le projet scrapé depuis la base
+                    scraped_project = ScrapedProject.objects.get(unique_hash=row['unique_hash'])
+                
+                    # Vérifier qu'il n'y a pas déjà d'alerte pour ce projet
+                    if not hasattr(scraped_project, 'alert'):
+                        # Créer l'alerte
+                        alert = ProjectAlert.create_from_scraped_project(scraped_project)
+                        alerts_created += 1
+                    
+                        if alert.priority_level in ['high', 'urgent']:
+                            high_priority_alerts += 1
+                    
+                        self.stdout.write(f"   🔔 Alerte créée: {alert.title[:50]}... (Priorité: {alert.priority_level})")
+                
+                except ScrapedProject.DoesNotExist:
+                    continue
+                except Exception as e:
+                    self.stdout.write(f"   ⚠️ Erreur création alerte: {e}")
+                    continue
+        
+            if alerts_created > 0:
+                self.stdout.write(self.style.SUCCESS(f"✅ {alerts_created} alertes créées ({high_priority_alerts} haute priorité)"))
+            
+                # Envoyer l'email de notification groupée
+                self.send_project_alerts_email(alerts_created, high_priority_alerts)
+        
+            return alerts_created
+        
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f"❌ Erreur système alertes: {e}"))
+            return 0
 
+    def send_project_alerts_email(self, total_alerts, high_priority_count):
+        """Envoyer un email de notification pour les nouvelles alertes"""
+        try:
+            from django.core.mail import send_mail
+            from django.conf import settings
+            from main_app.models import ProjectAlert, CustomUser
+        
+            # Récupérer les alertes récentes
+            recent_alerts = ProjectAlert.objects.filter(
+                status='active',
+                alert_created_at__gte=timezone.now() - timedelta(hours=1)
+            ).order_by('-priority_level', '-alert_created_at')[:10]
+        
+            # Construire le message email
+            subject = f"🔔 {total_alerts} nouveau{'x' if total_alerts > 1 else ''} projet{'s' if total_alerts > 1 else ''} de financement climatique détecté{'s' if total_alerts > 1 else ''}"
+        
+            message_parts = [
+                "🌍 NOUVELLES OPPORTUNITÉS DE FINANCEMENT CLIMATIQUE",
+                "=" * 60,
+                f"📊 Total nouveaux projets: {total_alerts}",
+                f"🔥 Haute priorité: {high_priority_count}",
+                f"📅 Détectés le: {timezone.now().strftime('%d/%m/%Y à %H:%M')}",
+                "",
+                "📋 APERÇU DES NOUVEAUX PROJETS:",
+                "-" * 40
+            ]
+        
+            for i, alert in enumerate(recent_alerts[:5], 1):
+                priority_indicator = {
+                    'urgent': '🚨',
+                    'high': '🔥',
+                    'medium': '📋',
+                    'low': '📝'
+                }.get(alert.priority_level, '📋')
+            
+                message_parts.extend([
+                    f"{i}. {priority_indicator} [{alert.get_source_display()}] {alert.title[:80]}",
+                    f"   💰 Financement: {alert.total_funding}",
+                    f"   🏢 Organisation: {alert.organization}",
+                    f"   📊 Score qualité: {alert.data_completeness_score}%",
+                    f"   🎯 Priorité: {alert.get_priority_level_display()}",
+                    ""
+                ])
+        
+            if len(recent_alerts) > 5:
+                message_parts.append(f"... et {len(recent_alerts) - 5} autres projets")
+        
+            message_parts.extend([
+                "",
+                "🎯 ACTIONS RECOMMANDÉES:",
+                "• Consulter les nouvelles alertes dans l'interface admin",
+                "• Évaluer les opportunités haute priorité en premier",
+                "• Vérifier les critères d'éligibilité pour la Mauritanie",
+                "• Préparer les dossiers de candidature",
+                "",
+                "💻 ACCÈS RAPIDE:",
+                "• Interface admin: /admin/main_app/projectalert/",
+                "• Page alertes: /suivez-appels",
+                "• API alertes: /api/project-alerts/",
+                "",
+                f"Système automatique de veille - {timezone.now().strftime('%d/%m/%Y %H:%M')}",
+                "Pour modifier vos préférences de notification, contactez l'administrateur."
+            ])
+        
+            full_message = "\n".join(message_parts)
+        
+            # Récupérer les destinataires (tous les admins actifs)
+            recipients = list(CustomUser.objects.filter(
+                role='admin', 
+                actif=True,
+                email__isnull=False
+            ).exclude(email='').values_list('email', flat=True))
+        
+            if recipients:
+                send_mail(
+                    subject=subject,
+                    message=full_message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=recipients,
+                    fail_silently=False
+                )
+            
+                # Marquer les alertes comme ayant été envoyées par email
+                recent_alerts.update(
+                    email_sent=True,
+                    email_sent_at=timezone.now()
+                )
+            
+                self.stdout.write(f"📧 Email d'alerte envoyé à {len(recipients)} destinataire(s)")
+        
+        except Exception as e:
+            self.stdout.write(f"⚠️ Erreur envoi email alertes: {e}")
+        
     def import_data_without_losing_projects(self, df, similarity_threshold, force_import=False):
         """Importe les données en évitant les doublons SANS perdre de projets légitimes"""
         try:
@@ -904,6 +971,36 @@ Nouvelle collecte de données terminée avec succès !
             new_projects_df = pd.DataFrame(truly_new_projects)
             self.stdout.write(f"\n🆕 {len(new_projects_df)} éléments uniques détectés pour importation")
 
+            # Afficher un aperçu des nouveaux éléments par source
+            self.stdout.write(f"\n📋 APERÇU DES NOUVEAUX ÉLÉMENTS:")
+            self.stdout.write("-" * 80)
+            
+            for source in ['CLIMATE_FUND', 'GEF', 'GCF', 'OTHER']:
+                source_df = new_projects_df[new_projects_df['source'] == source]
+                if len(source_df) > 0:
+                    source_name = {
+                        'GEF': 'GEF (Projets Mauritanie)',
+                        'GCF': 'GCF (Projets Mauritanie)', 
+                        'OTHER': 'OECD/Autres (Mauritanie)',
+                        'CLIMATE_FUND': 'Climate Funds (Global)'
+                    }.get(source, source)
+                    
+                    self.stdout.write(f"\n🌟 {source_name} - {len(source_df)} éléments:")
+                    for i, (_, row) in enumerate(source_df.head(3).iterrows(), 1):
+                        title_display = row['title'][:70] if len(row['title']) > 70 else row['title']
+                        self.stdout.write(f"   {i}. {title_display}")
+                        if row.get('organization'):
+                            org_display = row['organization'][:50] if len(row['organization']) > 50 else row['organization']
+                            self.stdout.write(f"      Org: {org_display}")
+                        funding = row.get('total_funding', '')
+                        if funding:
+                            funding_display = funding[:30] if len(funding) > 30 else funding
+                            self.stdout.write(f"      💰 {funding_display}")
+                        self.stdout.write(f"      📊 Score: {row.get('data_completeness_score', 0)}% | Révision: {'Oui' if row.get('needs_review') else 'Non'}")
+                    
+                    if len(source_df) > 3:
+                        self.stdout.write(f"   ... et {len(source_df) - 3} autres éléments")
+
             # Préparer les colonnes pour l'insertion
             cols_to_insert = [c for c in self.COLUMNS_IN_DB if c in new_projects_df.columns]
             df_to_insert = new_projects_df[cols_to_insert]
@@ -947,6 +1044,14 @@ Nouvelle collecte de données terminée avec succès !
                             error_msg = f"Élément '{row.get('title', 'UNKNOWN')[:30]}...': {str(individual_error)}"
                             errors.append(error_msg)
 
+            # Créer des alertes pour les nouveaux projets importés
+            alerts_created = 0
+            if success_count > 0:
+                try:
+                    alerts_created = self.create_project_alerts(new_projects_df)
+                except Exception as e:
+                    self.stdout.write(f"⚠️ Erreur lors de la création des alertes: {e}")
+
             # Rapport final détaillé
             self.stdout.write(f"\n📊 RAPPORT FINAL DE COLLECTION:")
             total_processed = len(df)
@@ -954,7 +1059,20 @@ Nouvelle collecte de données terminée avec succès !
             
             self.stdout.write(f"   ✅ Éléments collectés avec succès: {success_count}")
             self.stdout.write(f"   ⚠️ Doublons évidents évités: {total_duplicates}")
+            self.stdout.write(f"   🔔 Alertes créées: {alerts_created}")
             self.stdout.write(f"   📈 Taux de réussite: {success_count}/{total_processed} ({success_count/total_processed*100:.1f}%)")
+            
+            # Statistiques détaillées par source
+            self.stdout.write(f"\n📋 DÉTAIL PAR SOURCE (nouveaux importés):")
+            for source, stats in stats_by_source.items():
+                if stats['new'] > 0:
+                    source_name = {
+                        'GEF': 'GEF (Projets Mauritanie)',
+                        'GCF': 'GCF (Projets Mauritanie)', 
+                        'OTHER': 'OECD/Autres (Mauritanie)',
+                        'CLIMATE_FUND': 'Climate Funds (Global)'
+                    }.get(source, source)
+                    self.stdout.write(f"   • {source_name}: {stats['new']} éléments")
             
             if errors:
                 self.stdout.write(f"   ❌ Erreurs: {len(errors)}")
@@ -965,7 +1083,7 @@ Nouvelle collecte de données terminée avec succès !
 
             # Statistiques finales
             if success_count > 0:
-                self.generate_import_statistics(engine, success_count)
+                self.generate_import_statistics(engine, success_count, alerts_created)
 
             return success_count
 
@@ -975,42 +1093,57 @@ Nouvelle collecte de données terminée avec succès !
             traceback.print_exc()
             return 0
 
-    def generate_import_statistics(self, engine, new_count):
-        """Génère des statistiques après importation"""
+    def generate_import_statistics(self, engine, new_count, alerts_count=0):
+        """Génère des statistiques après importation avec alertes"""
         try:
             with engine.connect() as conn:
                 # Statistiques globales
                 result = conn.execute(text(f"SELECT COUNT(*) FROM {self.DB_CONFIG['main_table']}"))
                 total_count = result.fetchone()[0]
-                
+            
                 # Par source avec noms explicites
                 result = conn.execute(text(f"""
                     SELECT source, COUNT(*) as count, AVG(data_completeness_score) as avg_score
                     FROM {self.DB_CONFIG['main_table']} 
                     GROUP BY source
-                """))
+                    """))
                 source_stats = result.fetchall()
-                
+            
                 # Projets récents (dernières 24h)
                 result = conn.execute(text(f"""
                     SELECT COUNT(*) FROM {self.DB_CONFIG['main_table']} 
                     WHERE scraped_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                """))
+                    """))
                 recent_count = result.fetchone()[0]
-                
+            
                 # Statistiques spéciales pour Climate Funds
                 result = conn.execute(text(f"""
                     SELECT COUNT(*) FROM {self.DB_CONFIG['main_table']} 
                     WHERE source = 'CLIMATE_FUND'
-                """))
+                    """))
                 climate_funds_count = result.fetchone()[0]
+            
+                # Statistiques des alertes si le modèle existe
+                try:
+                    from main_app.models import ProjectAlert
+                    active_alerts = ProjectAlert.objects.filter(status='active').count()
+                    high_priority_alerts = ProjectAlert.objects.filter(
+                        status='active',
+                        priority_level__in=['high', 'urgent']
+                    ).count()
+                except:
+                    active_alerts = 0
+                    high_priority_alerts = 0
 
             self.stdout.write(f"\n📈 STATISTIQUES POST-IMPORTATION:")
             self.stdout.write(f"   📊 Total en base: {total_count} éléments")
             self.stdout.write(f"   🆕 Ajoutés aujourd'hui: {recent_count} éléments")
             self.stdout.write(f"   🌍 Fonds climatiques globaux: {climate_funds_count} éléments")
+            if alerts_count > 0:
+                self.stdout.write(f"   🔔 Nouvelles alertes créées: {alerts_count}")
+                self.stdout.write(f"   🚨 Alertes actives: {active_alerts} (dont {high_priority_alerts} haute priorité)")
             self.stdout.write(f"   📋 Répartition par source:")
-            
+        
             for source, count, avg_score in source_stats:
                 source_name = {
                     'GEF': 'GEF (Projets Mauritanie)',
@@ -1062,11 +1195,49 @@ Nouvelle collecte de données terminée avec succès !
                 source_counts = {}
                 climate_funds_total = 0
             
-            # Message d'email adapté
-            message = f"""
-🌍 NOUVEAUX PROJETS/FONDS SCRAPÉS - COLLECTION RÉUSSIE
+            if climate_funds_only:
+                message = f"""
+🌍 NOUVEAUX FONDS CLIMATIQUES GLOBAUX - COLLECTION SPÉCIALISÉE
 
-📊 RÉSULTATS:
+📊 COLLECTION RÉUSSIE:
+• Nouveaux fonds climatiques collectés: {count}
+• Total fonds climatiques en base: {climate_funds_total}
+• Total général en base Django: {total_count}
+• Modèle: ScrapedProject (main_app_scrapedproject)
+
+🌍 FONDS CLIMATIQUES GLOBAUX:
+• Source: Climate Funds Update (climatefundsupdate.org)
+• Portée: Fonds disponibles mondialement
+• Pertinence: Opportunités de financement pour projets en Mauritanie
+• Type: CLIMATE_FUND dans la base de données
+
+🎯 CARACTÉRISTIQUES DES FONDS:
+• Score de complétude très élevé (90%+)
+• Description avec montants détaillés (Pledged, Deposited, etc.)
+• Liens directs vers les pages des fonds
+• Marquage spécial [CLIMATE FUND] dans le titre
+
+💻 ACCÈS:
+• Admin Django: /admin/main_app/scrapedproject/?source__exact=CLIMATE_FUND
+• API REST: /api/scraped-projects/?source=CLIMATE_FUND
+• Interface React: Filtrer par source "CLIMATE_FUND"
+
+📝 PROCHAINES ÉTAPES:
+1. Explorer les opportunités de financement pour la Mauritanie
+2. Analyser les critères d'éligibilité des différents fonds
+3. Identifier les fonds les plus pertinents pour vos projets
+4. Développer des propositions de projet adaptées
+
+---
+Collection spécialisée fonds climatiques globaux
+Date: {datetime.now().strftime('%d/%m/%Y %H:%M')}
+Base: {self.DB_CONFIG['database']} - Table: {self.DB_CONFIG['main_table']}
+                """
+            else:
+                message = f"""
+🌍 NOUVEAUX PROJETS/FONDS SCRAPÉS - MAURITANIE + GLOBAL
+
+📊 COLLECTION RÉUSSIE:
 • Nouveaux éléments collectés: {count}
 • Total en base Django: {total_count}
 • Modèle: ScrapedProject (main_app_scrapedproject)
@@ -1077,22 +1248,41 @@ Nouvelle collecte de données terminée avec succès !
 • OECD/Autres (Mauritanie): {source_counts.get('OTHER', 0)} documents
 • Climate Funds (Global): {source_counts.get('CLIMATE_FUND', 0)} fonds
 
+🌍 FONDS CLIMATIQUES GLOBAUX:
+• Total fonds en base: {climate_funds_total}
+• Source: Climate Funds Update (climatefundsupdate.org)
+• Pertinence: Fonds disponibles pour projets en Mauritanie
+
+🎯 SOURCES COLLECTÉES:
+• GEF (Global Environment Facility): Projets environnementaux globaux
+• GCF (Green Climate Fund): Projets de financement climatique
+• OECD: Organisation for Economic Co-operation and Development
+• Climate Funds Update: Base de données globale des fonds climatiques
+
 ✅ FONCTIONNALITÉS AUTOMATIQUES:
 • Score de complétude calculé (0-100%)
 • Détection intelligente des doublons
-• Notifications créées pour tous les consultants
+• Marquage automatique des projets nécessitant révision
 • Hash unique pour éviter les duplicatas
+• Support spécial pour fonds climatiques globaux
 
 💻 ACCÈS:
 • Admin Django: /admin/main_app/scrapedproject/
 • API REST: /api/scraped-projects/
 • Interface React: Composant ScrapedProjectsDisplay
+• Filtrage par source: GEF, GCF, OTHER, CLIMATE_FUND
+
+📝 PROCHAINES ÉTAPES:
+1. Réviser les projets marqués "needs_review"
+2. Vérifier les scores de complétude faibles (<50%)
+3. Valider les nouveaux projets GEF/GCF
+4. Explorer les opportunités des fonds climatiques globaux
 
 ---
-Collection automatisée terminée avec succès
+Système de collection automatisé - Aucun projet/fonds légitime perdu
 Date: {datetime.now().strftime('%d/%m/%Y %H:%M')}
 Base: {self.DB_CONFIG['database']} - Table: {self.DB_CONFIG['main_table']}
-            """
+                """
 
             send_mail(
                 subject=subject,

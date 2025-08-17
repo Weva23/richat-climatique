@@ -190,3 +190,36 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 # File upload settings
 FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100MB
+
+def create_default_superuser():
+    """
+    Créer un super-administrateur par défaut si aucun n'existe
+    À utiliser avec des variables d'environnement
+    """
+    import os
+    from django.contrib.auth import get_user_model
+    
+    User = get_user_model()
+    
+    if not User.objects.filter(is_superuser=True).exists():
+        username = os.environ.get('DJANGO_SUPERUSER_USERNAME', 'admin')
+        email = os.environ.get('DJANGO_SUPERUSER_EMAIL', 'admin@richat-funding.mr')
+        password = os.environ.get('DJANGO_SUPERUSER_PASSWORD')
+        
+        if password:
+            User.objects.create_user(
+                username=username,
+                email=email,
+                password=password,
+                first_name='Super',
+                last_name='Admin',
+                role='admin',
+                level='N4',
+                is_staff=True,
+                is_superuser=True,
+                actif=True,
+                email_verified=True
+            )
+            print(f"Super-administrateur '{username}' créé automatiquement")
+        else:
+            print("Variable DJANGO_SUPERUSER_PASSWORD non définie, aucun super-admin créé")

@@ -1,6 +1,7 @@
 # =============================================================================
-# VUES CORRIGÉES POUR RÉSOUDRE LES ERREURS D'AUTHENTIFICATION
+# FICHIER: main_app/views.py - SYNTAXE CORRIGÉE
 # =============================================================================
+from datetime import timedelta
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
@@ -15,74 +16,116 @@ from django.core.management import call_command
 from django.utils import timezone
 from django.contrib.auth import authenticate
 import logging
+from .models import ProjectAlert
+from .serializers import ProjectAlertSerializer
 
 from .models import (
     CustomUser, Project, Document, DocumentType, Notification,
-    ScrapedProject, ScrapingSession
+    ScrapedProject, ScrapingSession, ProjectRequest
 )
 from .serializers import (
-    UserSerializer, UserProfileSerializer, ProjectSerializer, 
+    UserSerializer, UserProfileSerializer, ProjectSerializer,
     ProjectCreateUpdateSerializer, DocumentSerializer, DocumentTypeSerializer,
     NotificationSerializer, ScrapedProjectSerializer, ScrapingSessionSerializer,
     ScrapedProjectCreateProjectSerializer, DashboardStatsSerializer,
-    ScrapedProjectStatsSerializer
+    ScrapedProjectStatsSerializer, UserRegistrationSerializer, UserLoginSerializer,
+    ProjectRequestSerializer, ProjectRequestCreateSerializer
 )
 
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# VUES POUR L'AUTHENTIFICATION - CORRIGÉES
+# VUES D'AUTHENTIFICATION
 # =============================================================================
-
-class CustomAuthToken(ObtainAuthToken):
-    """Authentification personnalisée avec retour des infos utilisateur"""
-    permission_classes = [AllowAny]  # Autoriser tout le monde pour la connexion
+class RegisterView(APIView):
+    """Vue pour l'inscription - CLIENTS UNIQUEMENT"""
+    permission_classes = [AllowAny]
     
-    def post(self, request, *args, **kwargs):
+    def post(self, request):
         try:
-            username = request.data.get('username')
-            password = request.data.get('password')
+            serializer = UserRegistrationSerializer(data=request.data)
             
-            logger.info(f"Tentative de connexion pour: {username}")
-            
-            if not username or not password:
+            if serializer.is_valid():
+                # Créer l'utilisateur (automatiquement client)
+                user = serializer.save()
+                
+                # Créer le token
+                token, created = Token.objects.get_or_create(user=user)
+                
+                logger.info(f"Nouveau client inscrit: {user.username} - {user.company_name}")
+                
                 return Response({
-                    'error': 'Username et password requis'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Authentifier l'utilisateur
-            user = authenticate(username=username, password=password)
-            
-            if user is None:
-                logger.warning(f"Échec d'authentification pour: {username}")
-                return Response({
-                    'error': 'Identifiants incorrects'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            if not user.is_active:
-                return Response({
-                    'error': 'Compte désactivé'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Créer ou récupérer le token
-            token, created = Token.objects.get_or_create(user=user)
-            
-            logger.info(f"Connexion réussie pour: {username}")
+                    'message': f'Bienvenue {user.full_name}! Votre compte client a été créé avec succès.',
+                    'token': token.key,
+                    'user': {
+                        'id': user.id,
+                        'username': user.username,
+                        'email': user.email,
+                        'full_name': user.full_name,
+                        'role': user.role,
+                        'role_display': user.get_role_display(),
+                        'is_admin': False,
+                        'is_client': True,
+                        'company_name': user.company_name,
+                        'level': user.level
+                    },
+                    'redirect_url': '/client-dashboard'
+                }, status=status.HTTP_201_CREATED)
             
             return Response({
-                'token': token.key,
-                'user': {
-                    'id': user.id,
-                    'username': user.username,
-                    'email': user.email,
-                    'first_name': user.first_name,
-                    'last_name': user.last_name,
-                    'full_name': f"{user.first_name} {user.last_name}".strip() or user.username,
-                    'level': user.level,
-                    'department': user.department,
-                    'actif': user.actif,
-                }
-            })
+                'error': 'Données invalides',
+                'details': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de l'inscription: {e}")
+            return Response({
+                'error': 'Erreur interne du serveur'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class LoginView(APIView):
+    """Vue pour la connexion"""
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        try:
+            serializer = UserLoginSerializer(data=request.data)
+            
+            if serializer.is_valid():
+                user = serializer.validated_data['user']
+                
+                # Mettre à jour la dernière connexion
+                user.last_login = timezone.now()
+                
+                # Enregistrer l'IP de connexion
+                x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+                if x_forwarded_for:
+                    ip = x_forwarded_for.split(',')[0]
+                else:
+                    ip = request.META.get('REMOTE_ADDR')
+                user.last_login_ip = ip
+                
+                user.save(update_fields=['last_login', 'last_login_ip'])
+                
+                # Créer ou récupérer le token
+                token, created = Token.objects.get_or_create(user=user)
+                
+                logger.info(f"Connexion réussie: {user.username} ({user.get_role_display()}) depuis {ip}")
+                
+                # Déterminer l'URL de redirection selon le rôle
+                redirect_url = '/admin-dashboard' if user.is_admin else '/client-dashboard'
+                
+                return Response({
+                    'message': f'Bienvenue {user.full_name}',
+                    'token': token.key,
+                    'user': UserProfileSerializer(user).data,
+                    'redirect_url': redirect_url
+                }, status=status.HTTP_200_OK)
+            
+            return Response({
+                'error': 'Identifiants incorrects',
+                'details': serializer.errors
+            }, status=status.HTTP_401_UNAUTHORIZED)
             
         except Exception as e:
             logger.error(f"Erreur lors de la connexion: {e}")
@@ -90,48 +133,36 @@ class CustomAuthToken(ObtainAuthToken):
                 'error': 'Erreur interne du serveur'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class UserProfileView(APIView):
+class LogoutView(APIView):
+    """Vue pour la déconnexion"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # Supprimer le token
+            request.user.auth_token.delete()
+            
+            logger.info(f"Déconnexion: {request.user.username}")
+            
+            return Response({
+                'message': 'Déconnexion réussie'
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la déconnexion: {e}")
+            return Response({
+                'error': 'Erreur lors de la déconnexion'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class ProfileView(APIView):
     """Vue pour le profil utilisateur"""
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
+        """Récupérer le profil"""
         try:
-            logger.info(f"Récupération du profil pour: {request.user.username}")
-            
-            # Calculer les statistiques
-            stats = {
-                'active_projects': Project.objects.filter(
-                    consultant=request.user, 
-                    status__in=['progress', 'ready']
-                ).count(),
-                'completed_projects': Project.objects.filter(
-                    consultant=request.user, 
-                    status='approved'
-                ).count(),
-                'pending_projects': Project.objects.filter(
-                    consultant=request.user, 
-                    status='progress'
-                ).count(),
-                'success_rate': 95  # Valeur fixe pour l'instant
-            }
-            
-            profile_data = {
-                'id': request.user.id,
-                'username': request.user.username,
-                'email': request.user.email,
-                'first_name': request.user.first_name,
-                'last_name': request.user.last_name,
-                'full_name': f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username,
-                'phone': request.user.phone,
-                'level': request.user.level,
-                'department': request.user.department,
-                'date_embauche': request.user.date_embauche,
-                'profile_picture': request.user.profile_picture.url if request.user.profile_picture else None,
-                'stats': stats
-            }
-            
-            return Response(profile_data)
-            
+            serializer = UserProfileSerializer(request.user)
+            return Response(serializer.data)
         except Exception as e:
             logger.error(f"Erreur récupération profil: {e}")
             return Response({
@@ -139,32 +170,48 @@ class UserProfileView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     def put(self, request):
+        """Mettre à jour le profil"""
         try:
-            user = request.user
+            serializer = UserProfileSerializer(
+                request.user, 
+                data=request.data, 
+                partial=True
+            )
             
-            # Mettre à jour les champs autorisés
-            allowed_fields = ['first_name', 'last_name', 'email', 'phone']
-            for field in allowed_fields:
-                if field in request.data:
-                    setattr(user, field, request.data[field])
+            if serializer.is_valid():
+                serializer.save()
+                logger.info(f"Profil mis à jour: {request.user.username}")
+                return Response({
+                    'message': 'Profil mis à jour avec succès',
+                    'user': serializer.data
+                })
             
-            user.save()
-            
-            logger.info(f"Profil mis à jour pour: {user.username}")
-            
-            # Retourner le profil mis à jour
-            return self.get(request)
+            return Response({
+                'error': 'Données invalides',
+                'details': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
             
         except Exception as e:
             logger.error(f"Erreur mise à jour profil: {e}")
             return Response({
-                'error': 'Erreur lors de la mise à jour du profil'
+                'error': 'Erreur lors de la mise à jour'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# =============================================================================
-# VUE DE TEST POUR DEBUG
-# =============================================================================
+# Vue de vérification du rôle
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def check_user_role(request):
+    """Vérifier le rôle de l'utilisateur"""
+    return Response({
+        'role': request.user.role,
+        'is_admin': request.user.is_admin,
+        'is_client': request.user.is_client,
+        'redirect_url': '/admin-dashboard' if request.user.is_admin else '/client-dashboard'
+    })
 
+# =============================================================================
+# VUES DE TEST POUR DEBUG
+# =============================================================================
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def auth_test(request):
@@ -189,9 +236,8 @@ def auth_debug(request):
     })
 
 # =============================================================================
-# AUTRES VUES (INCHANGÉES MAIS AVEC PERMISSIONS CORRIGÉES)
+# VIEWSETS POUR LES CONSULTANTS
 # =============================================================================
-
 class ConsultantViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet pour les consultants"""
     serializer_class = UserSerializer
@@ -206,9 +252,8 @@ class ConsultantViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
 # =============================================================================
-# VUES POUR LES PROJETS SCRAPÉS - PERMISSIONS OUVERTES POUR TEST
+# VIEWSETS POUR LES PROJETS SCRAPÉS
 # =============================================================================
-
 class ScrapedProjectViewSet(viewsets.ModelViewSet):
     """ViewSet pour les projets scrapés"""
     queryset = ScrapedProject.objects.all()
@@ -277,9 +322,8 @@ class ScrapedProjectViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # =============================================================================
-# VUES POUR LES PROJETS DJANGO
+# VIEWSETS POUR LES PROJETS DJANGO
 # =============================================================================
-
 class ProjectViewSet(viewsets.ModelViewSet):
     queryset = Project.objects.all().select_related('consultant').prefetch_related('documents')
     serializer_class = ProjectSerializer
@@ -342,9 +386,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # =============================================================================
-# AUTRES VIEWSETS AVEC PERMISSIONS OUVERTES POUR TEST
+# VIEWSETS POUR LES NOTIFICATIONS
 # =============================================================================
-
 class NotificationViewSet(viewsets.ModelViewSet):
     serializer_class = NotificationSerializer
     permission_classes = [AllowAny]  # Temporaire pour debug
@@ -357,13 +400,49 @@ class NotificationViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def unread_count(self, request):
-        """Nombre de notifications non lues"""
+        """Nombre de notifications non lues et d'alertes actives"""
         if not request.user.is_authenticated:
-            return Response({'unread_count': 0})
-        
-        count = self.get_queryset().filter(read=False).count()
-        return Response({'unread_count': count})
+           return Response({'unread_count': 0, 'alerts_count': 0})
+    
+        # Notifications non lues
+        notifications_count = self.get_queryset().filter(read=False).count()
+    
+       # Alertes actives (si l'utilisateur est admin)
+        alerts_count = 0
+        if request.user.role == 'admin':
+          try:
+            alerts_count = ProjectAlert.objects.filter(status='active').count()
+          except Exception:
+            alerts_count = 0
+    
+        return Response({
+           'unread_count': notifications_count,
+           'alerts_count': alerts_count
+        })
 
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        """Marquer une notification comme lue"""
+        try:
+            notification = self.get_object()
+            notification.read = True
+            notification.save()
+            return Response({'message': 'Notification marquée comme lue'})
+        except Exception as e:
+            return Response({'error': 'Erreur lors du marquage'}, status=400)
+
+    @action(detail=False, methods=['post'])
+    def mark_all_read(self, request):
+        """Marquer toutes les notifications comme lues"""
+        try:
+            self.get_queryset().update(read=True)
+            return Response({'message': 'Toutes les notifications marquées comme lues'})
+        except Exception as e:
+            return Response({'error': 'Erreur lors du marquage'}, status=400)
+
+# =============================================================================
+# VIEWSETS POUR LES DOCUMENTS
+# =============================================================================
 class DocumentViewSet(viewsets.ModelViewSet):
     queryset = Document.objects.all().select_related('project', 'document_type', 'uploaded_by')
     serializer_class = DocumentSerializer
@@ -378,6 +457,9 @@ class DocumentTypeViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = DocumentTypeSerializer
     permission_classes = [AllowAny]  # Temporaire pour debug
 
+# =============================================================================
+# VIEWSETS POUR LES SESSIONS DE SCRAPING
+# =============================================================================
 class ScrapingSessionViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet pour les sessions de scraping"""
     queryset = ScrapingSession.objects.all()
@@ -386,3 +468,240 @@ class ScrapingSessionViewSet(viewsets.ReadOnlyModelViewSet):
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ['source', 'success']
     ordering = ['-started_at']
+class ProjectAlertStatsView(APIView):
+    def get(self, request):
+        stats = {
+            'active_alerts': ProjectAlert.objects.filter(status='active').count(),
+            'high_priority_alerts': ProjectAlert.objects.filter(
+                status='active', 
+                priority_level__in=['high', 'urgent']
+            ).count(),
+            'new_this_week': ProjectAlert.objects.filter(
+                created_at__gte=timezone.now() - timedelta(days=7)
+            ).count(),
+            'total_funding': "€2.5M+"  # À remplacer par un calcul réel
+        }
+        return Response(stats)
+# =============================================================================
+# VIEWSETS POUR LES DEMANDES DE PROJETS
+# =============================================================================
+class ProjectRequestViewSet(viewsets.ModelViewSet):
+    """ViewSet pour les demandes de projets"""
+    queryset = ProjectRequest.objects.all().select_related('client', 'processed_by').prefetch_related('projects')
+    serializer_class = ProjectRequestSerializer
+    permission_classes = [AllowAny]  # À adapter selon vos besoins
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
+    filterset_fields = ['status', 'client', 'processed_by']
+    ordering = ['-priority_score', '-created_at']
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return ProjectRequestCreateSerializer
+        return ProjectRequestSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Si l'utilisateur est un client, voir seulement ses demandes
+        if hasattr(self.request, 'user') and self.request.user.is_authenticated:
+            if self.request.user.role == 'client':
+                queryset = queryset.filter(client=self.request.user)
+        
+        return queryset
+    
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """Approuver une demande"""
+        try:
+            project_request = self.get_object()
+            response_message = request.data.get('response_message', '')
+            
+            if not hasattr(request.user, 'is_admin') or not request.user.is_admin:
+                return Response({'error': 'Permission refusée'}, status=403)
+            
+            project_request.approve(request.user, response_message)
+            
+            return Response({
+                'message': 'Demande approuvée avec succès',
+                'request': ProjectRequestSerializer(project_request).data
+            })
+        except Exception as e:
+            logger.error(f"Erreur approbation demande: {e}")
+            return Response({'error': 'Erreur lors de l\'approbation'}, status=500)
+    
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """Rejeter une demande"""
+        try:
+            project_request = self.get_object()
+            response_message = request.data.get('response_message', '')
+            
+            if not hasattr(request.user, 'is_admin') or not request.user.is_admin:
+                return Response({'error': 'Permission refusée'}, status=403)
+            
+            if not response_message:
+                return Response({'error': 'Message de rejet requis'}, status=400)
+            
+            project_request.reject(request.user, response_message)
+            
+            return Response({
+                'message': 'Demande rejetée',
+                'request': ProjectRequestSerializer(project_request).data
+            })
+        except Exception as e:
+            logger.error(f"Erreur rejet demande: {e}")
+            return Response({'error': 'Erreur lors du rejet'}, status=500)
+    
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Statistiques des demandes"""
+        try:
+            total_requests = ProjectRequest.objects.count()
+            pending_requests = ProjectRequest.objects.filter(status='pending').count()
+            approved_requests = ProjectRequest.objects.filter(status='approved').count()
+            rejected_requests = ProjectRequest.objects.filter(status='rejected').count()
+            
+            # Demandes par priorité
+            high_priority = ProjectRequest.objects.filter(
+                status='pending',
+                priority_score__gte=70
+            ).count()
+            
+            return Response({
+                'total_requests': total_requests,
+                'pending_requests': pending_requests,
+                'approved_requests': approved_requests,
+                'rejected_requests': rejected_requests,
+                'high_priority_pending': high_priority,
+                'avg_processing_time': '2.5 jours',  # À calculer dynamiquement
+            })
+        except Exception as e:
+            logger.error(f"Erreur stats demandes: {e}")
+            return Response({'error': 'Erreur lors du calcul des statistiques'}, status=500)
+        
+# =============================================================================
+# AJOUT AU FICHIER: main_app/views.py - VUES POUR LES ALERTES PROJETS
+# =============================================================================
+
+# Ajouter ces imports en haut du fichier
+
+
+# =============================================================================
+# VIEWSET POUR LES ALERTES PROJETS
+# =============================================================================
+class ProjectAlertViewSet(viewsets.ModelViewSet):
+    """ViewSet pour les alertes de projets"""
+    queryset = ProjectAlert.objects.all().select_related('scraped_project')
+    serializer_class = ProjectAlertSerializer
+    permission_classes = [AllowAny]  # À adapter selon vos besoins
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['status', 'priority_level', 'source', 'is_featured', 'is_new_this_week']
+    search_fields = ['title', 'organization', 'description']
+    ordering_fields = ['alert_created_at', 'priority_level', 'data_completeness_score']
+    ordering = ['-alert_created_at']
+    
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        """Marquer une alerte comme lue"""
+        try:
+            alert = self.get_object()
+            alert.mark_as_read()
+            return Response({
+                'message': 'Alerte marquée comme lue',
+                'alert': ProjectAlertSerializer(alert).data
+            })
+        except Exception as e:
+            logger.error(f"Erreur marquage alerte: {e}")
+            return Response({'error': 'Erreur lors du marquage'}, status=500)
+    
+    @action(detail=True, methods=['post'])
+    def dismiss(self, request, pk=None):
+        """Ignorer une alerte"""
+        try:
+            alert = self.get_object()
+            alert.dismiss()
+            return Response({
+                'message': 'Alerte ignorée',
+                'alert': ProjectAlertSerializer(alert).data
+            })
+        except Exception as e:
+            logger.error(f"Erreur ignorance alerte: {e}")
+            return Response({'error': 'Erreur lors de l\'ignorance'}, status=500)
+    
+    @action(detail=True, methods=['post'])
+    def archive(self, request, pk=None):
+        """Archiver une alerte"""
+        try:
+            alert = self.get_object()
+            alert.status = 'archived'
+            alert.save()
+            return Response({
+                'message': 'Alerte archivée',
+                'alert': ProjectAlertSerializer(alert).data
+            })
+        except Exception as e:
+            logger.error(f"Erreur archivage alerte: {e}")
+            return Response({'error': 'Erreur lors de l\'archivage'}, status=500)
+    
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Statistiques des alertes"""
+        try:
+            total_alerts = ProjectAlert.objects.count()
+            active_alerts = ProjectAlert.objects.filter(status='active').count()
+            
+            # Alertes par priorité
+            high_priority_alerts = ProjectAlert.objects.filter(
+                status='active',
+                priority_level__in=['high', 'urgent']
+            ).count()
+            
+            new_this_week = ProjectAlert.objects.filter(
+                is_new_this_week=True,
+                status='active'
+            ).count()
+            
+            # Par source
+            by_source = {}
+            for source_code, _ in ProjectAlert._meta.get_field('source').choices:
+                by_source[source_code] = ProjectAlert.objects.filter(
+                    source=source_code,
+                    status='active'
+                ).count()
+            
+            # Par priorité
+            by_priority = {}
+            for priority_code, _ in ProjectAlert._meta.get_field('priority_level').choices:
+                by_priority[priority_code] = ProjectAlert.objects.filter(
+                    priority_level=priority_code,
+                    status='active'
+                ).count()
+            
+            return Response({
+                'total_alerts': total_alerts,
+                'active_alerts': active_alerts,
+                'high_priority_alerts': high_priority_alerts,
+                'new_this_week': new_this_week,
+                'by_source': by_source,
+                'by_priority': by_priority,
+            })
+        except Exception as e:
+            logger.error(f"Erreur stats alertes: {e}")
+            return Response({'error': 'Erreur lors du calcul des statistiques'}, status=500)
+    
+    @action(detail=False, methods=['get'])
+    def featured(self, request):
+        """Alertes mises en avant"""
+        try:
+            featured_alerts = ProjectAlert.objects.filter(
+                status='active',
+                is_featured=True
+            ).order_by('-priority_level', '-alert_created_at')[:10]
+            
+            return Response({
+                'results': ProjectAlertSerializer(featured_alerts, many=True).data,
+                'count': len(featured_alerts)
+            })
+        except Exception as e:
+            logger.error(f"Erreur alertes featured: {e}")
+            return Response({'error': 'Erreur lors du chargement'}, status=500)

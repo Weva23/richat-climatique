@@ -1,5 +1,5 @@
 # =============================================================================
-# URLS CORRIGÉES AVEC ENDPOINTS DE DEBUG
+# URLS CORRIGÉES SANS DOUBLONS
 # =============================================================================
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
@@ -14,15 +14,21 @@ router.register(r'notifications', views.NotificationViewSet, basename='notificat
 router.register(r'consultants', views.ConsultantViewSet, basename='consultant')
 router.register(r'scraped-projects', views.ScrapedProjectViewSet)
 router.register(r'scraping-sessions', views.ScrapingSessionViewSet)
+router.register(r'project-requests', views.ProjectRequestViewSet)
+router.register(r'project-alerts', views.ProjectAlertViewSet, basename='project-alert')  # Ajouté
+
 
 urlpatterns = [
     # API Routes avec le routeur
     path('', include(router.urls)),
     
-    # Routes d'authentification CORRIGÉES
-    path('auth/login/', views.CustomAuthToken.as_view(), name='api_token_auth'),
-    path('auth/profile/', views.UserProfileView.as_view(), name='user_profile'),
-    
+    # Routes d'authentification (SANS DOUBLONS)
+    path('auth/register/', views.RegisterView.as_view(), name='register'),
+    path('auth/login/', views.LoginView.as_view(), name='login'),
+    path('auth/logout/', views.LogoutView.as_view(), name='logout'),
+    path('auth/profile/', views.ProfileView.as_view(), name='profile'),
+    path('auth/check-role/', views.check_user_role, name='check_role'),
+    path('project-alerts/stats/', views.ProjectAlertStatsView.as_view(), name='project-alerts-stats'),
     # Routes de debug pour tester l'authentification
     path('auth/test/', views.auth_test, name='auth_test'),
     path('auth/debug/', views.auth_debug, name='auth_debug'),
