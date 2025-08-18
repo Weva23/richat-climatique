@@ -390,6 +390,214 @@ class Document(models.Model):
 # =============================================================================
 # MODÈLE POUR LES NOTIFICATIONS
 # =============================================================================
+
+# =============================================================================
+# AJOUT AU FICHIER: main_app/models.py - NOUVEAU MODÈLE ProjectAlert
+# =============================================================================
+
+class ProjectAlert(models.Model):
+    """Modèle pour les alertes de nouveaux projets scrapés"""
+    
+    # Référence au projet scrapé
+    scraped_project = models.OneToOneField(
+        ScrapedProject,
+        on_delete=models.CASCADE,
+        related_name='alert',
+        verbose_name="Projet scrapé"
+    )
+    
+    # Informations copiées du projet au moment de l'alerte (snapshot)
+    title = models.CharField(max_length=500, verbose_name="Titre")
+    source = models.CharField(max_length=10, choices=ScrapedProject.SOURCE_CHOICES, verbose_name="Source")
+    source_url = models.URLField(max_length=1000, blank=True, verbose_name="URL source")
+    description = models.TextField(blank=True, verbose_name="Description")
+    organization = models.CharField(max_length=200, blank=True, verbose_name="Organisation")
+    project_type = models.CharField(max_length=200, blank=True, verbose_name="Type de projet")
+    total_funding = models.CharField(max_length=100, blank=True, verbose_name="Financement total")
+    funding_amount = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True, verbose_name="Montant numérique")
+    country = models.CharField(max_length=100, default='Mauritania', verbose_name="Pays")
+    data_completeness_score = models.IntegerField(default=0, verbose_name="Score de complétude")
+    
+    # Métadonnées de l'alerte
+    alert_created_at = models.DateTimeField(auto_now_add=True, verbose_name="Alerte créée le")
+    is_new_this_week = models.BooleanField(default=True, verbose_name="Nouveau cette semaine")
+    is_featured = models.BooleanField(default=False, verbose_name="Mis en avant")
+    priority_level = models.CharField(
+        max_length=10,
+        choices=[
+            ('low', 'Basse'),
+            ('medium', 'Moyenne'),
+            ('high', 'Haute'),
+            ('urgent', 'Urgente')
+        ],
+        default='medium',
+        verbose_name="Niveau de priorité"
+    )
+    
+    # Statut de l'alerte
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('active', 'Active'),
+            ('read', 'Lue'),
+            ('archived', 'Archivée'),
+            ('dismissed', 'Ignorée')
+        ],
+        default='active',
+        verbose_name="Statut"
+    )
+    
+    # Notifications envoyées
+    email_sent = models.BooleanField(default=False, verbose_name="Email envoyé")
+    email_sent_at = models.DateTimeField(null=True, blank=True, verbose_name="Email envoyé le")
+    
+    class Meta:
+        ordering = ['-alert_created_at']
+        verbose_name = "Alerte de projet"
+        verbose_name_plural = "Alertes de projets"
+        indexes = [
+            models.Index(fields=['status', 'alert_created_at']),
+            models.Index(fields=['source', 'is_new_this_week']),
+            models.Index(fields=['priority_level', '-alert_created_at']),
+        ]
+    
+    def __str__(self):
+        return f"🔔 {self.title[:50]}... - {self.get_source_display()}"
+    
+    @property
+    def time_since_alert(self):
+        """Temps écoulé depuis la création de l'alerte"""
+        from django.utils import timezone
+        diff = timezone.now() - self.alert_created_at
+        
+        if diff.days > 0:
+            return f"il y a {diff.days} jour{'s' if diff.days > 1 else ''}"
+        elif diff.seconds > 3600:
+            hours = diff.seconds // 3600
+            return f"il y a {hours} heure{'s' if hours > 1 else ''}"
+        elif diff.seconds > 60:
+            minutes = diff.seconds // 60
+            return f"il y a {minutes} minute{'s' if minutes > 1 else ''}"
+        else:
+            return "à l'instant"
+    
+    @property
+    def alert_icon(self):
+        """Icône selon la source"""
+        icons = {
+            'GEF': '🌍',
+            'GCF': '💚',
+            'CLIMATE_FUND': '🌱',
+            'OTHER': '📋'
+        }
+        return icons.get(self.source, '📋')
+    
+    @property
+    def priority_color(self):
+        """Couleur selon la priorité"""
+        colors = {
+            'low': 'text-gray-600 bg-gray-50',
+            'medium': 'text-blue-600 bg-blue-50',
+            'high': 'text-orange-600 bg-orange-50',
+            'urgent': 'text-red-600 bg-red-50'
+        }
+        return colors.get(self.priority_level, 'text-gray-600 bg-gray-50')
+    
+    def calculate_priority(self):
+        """Calcule la priorité automatiquement"""
+        score = 0
+        
+        # Score de complétude élevé = plus prioritaire
+        if self.data_completeness_score >= 90:
+            score += 3
+        elif self.data_completeness_score >= 70:
+            score += 2
+        elif self.data_completeness_score >= 50:
+            score += 1
+        
+        # Montant de financement élevé = plus prioritaire
+        if self.funding_amount:
+            if self.funding_amount >= 1000000:  # > 1M
+                score += 3
+            elif self.funding_amount >= 500000:  # > 500K
+                score += 2
+            elif self.funding_amount >= 100000:  # > 100K
+                score += 1
+        
+        # Fonds climatiques globaux = plus prioritaire
+        if self.source == 'CLIMATE_FUND':
+            score += 2
+        
+        # Déterminer le niveau
+        if score >= 6:
+            return 'urgent'
+        elif score >= 4:
+            return 'high'
+        elif score >= 2:
+            return 'medium'
+        else:
+            return 'low'
+    
+    def save(self, *args, **kwargs):
+        """Override save pour calculer la priorité automatiquement"""
+        if not self.priority_level or self.priority_level == 'medium':
+            self.priority_level = self.calculate_priority()
+        super().save(*args, **kwargs)
+    
+    @classmethod
+    def create_from_scraped_project(cls, scraped_project):
+        """Créer une alerte depuis un projet scrapé"""
+        alert = cls.objects.create(
+            scraped_project=scraped_project,
+            title=scraped_project.title,
+            source=scraped_project.source,
+            source_url=scraped_project.source_url,
+            description=scraped_project.description,
+            organization=scraped_project.organization,
+            project_type=scraped_project.project_type,
+            total_funding=scraped_project.total_funding,
+            funding_amount=scraped_project.funding_amount,
+            country=scraped_project.country,
+            data_completeness_score=scraped_project.data_completeness_score,
+            is_featured=(scraped_project.data_completeness_score >= 80),
+        )
+        
+        # Créer les notifications pour les admins
+        alert.create_notifications()
+        
+        return alert
+    
+    def create_notifications(self):
+        """Créer des notifications pour tous les administrateurs"""
+        admins = CustomUser.objects.filter(role='admin', actif=True)
+        
+        for admin in admins:
+            Notification.objects.create(
+                type='scraping',
+                title=f'🔔 Nouveau projet {self.get_source_display()}',
+                message=f'{self.alert_icon} {self.title[:80]}{"..." if len(self.title) > 80 else ""}\n💰 {self.total_funding}\n🏢 {self.organization}\n📊 Score: {self.data_completeness_score}%',
+                consultant=admin,
+                read=False,
+                project_alert=self  # Nouveau champ relation
+            )
+    
+    def mark_as_read(self):
+        """Marquer l'alerte comme lue"""
+        self.status = 'read'
+        self.save()
+    
+    def dismiss(self):
+        """Ignorer l'alerte"""
+        self.status = 'dismissed'
+        self.save()
+
+# =============================================================================
+# MODIFICATION DU MODÈLE Notification EXISTANT
+# =============================================================================
+# Ajouter ce champ à la classe Notification existante :
+
+# Nouveau champ dans la classe Notification
+
 class Notification(models.Model):
     """Notifications pour les consultants"""
     TYPE_CHOICES = [
@@ -421,6 +629,14 @@ class Notification(models.Model):
         blank=True,
         related_name='notifications',
         verbose_name="Demande liée"
+    )
+    project_alert = models.ForeignKey(
+    'ProjectAlert',
+    on_delete=models.CASCADE,
+    null=True,
+    blank=True,
+    related_name='notifications',
+    verbose_name="Alerte liée"
     )
     class Meta:
         ordering = ['-created_at']

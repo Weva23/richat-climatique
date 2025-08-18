@@ -1,6 +1,7 @@
 # =============================================================================
 # FICHIER: main_app/views.py - SYNTAXE CORRIGÉE
 # =============================================================================
+from datetime import timedelta
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
@@ -15,6 +16,8 @@ from django.core.management import call_command
 from django.utils import timezone
 from django.contrib.auth import authenticate
 import logging
+from .models import ProjectAlert
+from .serializers import ProjectAlertSerializer
 
 from .models import (
     CustomUser, Project, Document, DocumentType, Notification,
@@ -366,12 +369,25 @@ class NotificationViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def unread_count(self, request):
-        """Nombre de notifications non lues"""
+        """Nombre de notifications non lues et d'alertes actives"""
         if not request.user.is_authenticated:
-            return Response({'unread_count': 0})
-        
-        count = self.get_queryset().filter(read=False).count()
-        return Response({'unread_count': count})
+           return Response({'unread_count': 0, 'alerts_count': 0})
+    
+        # Notifications non lues
+        notifications_count = self.get_queryset().filter(read=False).count()
+    
+       # Alertes actives (si l'utilisateur est admin)
+        alerts_count = 0
+        if request.user.role == 'admin':
+          try:
+            alerts_count = ProjectAlert.objects.filter(status='active').count()
+          except Exception:
+            alerts_count = 0
+    
+        return Response({
+           'unread_count': notifications_count,
+           'alerts_count': alerts_count
+        })
 
     @action(detail=True, methods=['post'])
     def mark_read(self, request, pk=None):
@@ -421,7 +437,20 @@ class ScrapingSessionViewSet(viewsets.ReadOnlyModelViewSet):
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ['source', 'success']
     ordering = ['-started_at']
-
+class ProjectAlertStatsView(APIView):
+    def get(self, request):
+        stats = {
+            'active_alerts': ProjectAlert.objects.filter(status='active').count(),
+            'high_priority_alerts': ProjectAlert.objects.filter(
+                status='active', 
+                priority_level__in=['high', 'urgent']
+            ).count(),
+            'new_this_week': ProjectAlert.objects.filter(
+                created_at__gte=timezone.now() - timedelta(days=7)
+            ).count(),
+            'total_funding': "€2.5M+"  # À remplacer par un calcul réel
+        }
+        return Response(stats)
 # =============================================================================
 # VIEWSETS POUR LES DEMANDES DE PROJETS
 # =============================================================================
@@ -518,3 +547,130 @@ class ProjectRequestViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"Erreur stats demandes: {e}")
             return Response({'error': 'Erreur lors du calcul des statistiques'}, status=500)
+        
+# =============================================================================
+# AJOUT AU FICHIER: main_app/views.py - VUES POUR LES ALERTES PROJETS
+# =============================================================================
+
+# Ajouter ces imports en haut du fichier
+
+
+# =============================================================================
+# VIEWSET POUR LES ALERTES PROJETS
+# =============================================================================
+class ProjectAlertViewSet(viewsets.ModelViewSet):
+    """ViewSet pour les alertes de projets"""
+    queryset = ProjectAlert.objects.all().select_related('scraped_project')
+    serializer_class = ProjectAlertSerializer
+    permission_classes = [AllowAny]  # À adapter selon vos besoins
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['status', 'priority_level', 'source', 'is_featured', 'is_new_this_week']
+    search_fields = ['title', 'organization', 'description']
+    ordering_fields = ['alert_created_at', 'priority_level', 'data_completeness_score']
+    ordering = ['-alert_created_at']
+    
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        """Marquer une alerte comme lue"""
+        try:
+            alert = self.get_object()
+            alert.mark_as_read()
+            return Response({
+                'message': 'Alerte marquée comme lue',
+                'alert': ProjectAlertSerializer(alert).data
+            })
+        except Exception as e:
+            logger.error(f"Erreur marquage alerte: {e}")
+            return Response({'error': 'Erreur lors du marquage'}, status=500)
+    
+    @action(detail=True, methods=['post'])
+    def dismiss(self, request, pk=None):
+        """Ignorer une alerte"""
+        try:
+            alert = self.get_object()
+            alert.dismiss()
+            return Response({
+                'message': 'Alerte ignorée',
+                'alert': ProjectAlertSerializer(alert).data
+            })
+        except Exception as e:
+            logger.error(f"Erreur ignorance alerte: {e}")
+            return Response({'error': 'Erreur lors de l\'ignorance'}, status=500)
+    
+    @action(detail=True, methods=['post'])
+    def archive(self, request, pk=None):
+        """Archiver une alerte"""
+        try:
+            alert = self.get_object()
+            alert.status = 'archived'
+            alert.save()
+            return Response({
+                'message': 'Alerte archivée',
+                'alert': ProjectAlertSerializer(alert).data
+            })
+        except Exception as e:
+            logger.error(f"Erreur archivage alerte: {e}")
+            return Response({'error': 'Erreur lors de l\'archivage'}, status=500)
+    
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Statistiques des alertes"""
+        try:
+            total_alerts = ProjectAlert.objects.count()
+            active_alerts = ProjectAlert.objects.filter(status='active').count()
+            
+            # Alertes par priorité
+            high_priority_alerts = ProjectAlert.objects.filter(
+                status='active',
+                priority_level__in=['high', 'urgent']
+            ).count()
+            
+            new_this_week = ProjectAlert.objects.filter(
+                is_new_this_week=True,
+                status='active'
+            ).count()
+            
+            # Par source
+            by_source = {}
+            for source_code, _ in ProjectAlert._meta.get_field('source').choices:
+                by_source[source_code] = ProjectAlert.objects.filter(
+                    source=source_code,
+                    status='active'
+                ).count()
+            
+            # Par priorité
+            by_priority = {}
+            for priority_code, _ in ProjectAlert._meta.get_field('priority_level').choices:
+                by_priority[priority_code] = ProjectAlert.objects.filter(
+                    priority_level=priority_code,
+                    status='active'
+                ).count()
+            
+            return Response({
+                'total_alerts': total_alerts,
+                'active_alerts': active_alerts,
+                'high_priority_alerts': high_priority_alerts,
+                'new_this_week': new_this_week,
+                'by_source': by_source,
+                'by_priority': by_priority,
+            })
+        except Exception as e:
+            logger.error(f"Erreur stats alertes: {e}")
+            return Response({'error': 'Erreur lors du calcul des statistiques'}, status=500)
+    
+    @action(detail=False, methods=['get'])
+    def featured(self, request):
+        """Alertes mises en avant"""
+        try:
+            featured_alerts = ProjectAlert.objects.filter(
+                status='active',
+                is_featured=True
+            ).order_by('-priority_level', '-alert_created_at')[:10]
+            
+            return Response({
+                'results': ProjectAlertSerializer(featured_alerts, many=True).data,
+                'count': len(featured_alerts)
+            })
+        except Exception as e:
+            logger.error(f"Erreur alertes featured: {e}")
+            return Response({'error': 'Erreur lors du chargement'}, status=500)

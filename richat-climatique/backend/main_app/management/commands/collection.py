@@ -33,7 +33,7 @@ class Command(BaseCommand):
             'port': '3306',
             'database': 'richat_funding_db',
             'main_table': 'main_app_scrapedproject',
-            'notification_table': 'main_app_notification'
+            'notification_table': 'main_app_projectalert'
         }
 
         self.SCRAPED_DATA_DIR = Path(settings.BASE_DIR) / 'scraped_data'
@@ -244,7 +244,7 @@ class Command(BaseCommand):
         """Traitement spécial pour les données Climate Funds Global"""
         self.stdout.write("   🌍 Traitement spécial des fonds climatiques globaux...")
         
-        # Mapping spécifique pour Climate Funds - CORRIGÉ
+        # Mapping spécifique pour Climate Funds
         climate_fund_mapping = {
             'Fund Name': 'title',
             'Fund URL': 'additional_links',
@@ -736,7 +736,142 @@ class Command(BaseCommand):
             
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"❌ Erreur simulation: {str(e)}"))
+    
+    def create_project_alerts(self, new_projects_df):
+        """Créer des alertes pour les nouveaux projets"""
+        alerts_created = 0
+        high_priority_alerts = 0
+    
+        try:
+            from main_app.models import ProjectAlert, ScrapedProject
+        
+            for _, row in new_projects_df.iterrows():
+                try:
+                    # Récupérer le projet scrapé depuis la base
+                    scraped_project = ScrapedProject.objects.get(unique_hash=row['unique_hash'])
+                
+                    # Vérifier qu'il n'y a pas déjà d'alerte pour ce projet
+                    if not hasattr(scraped_project, 'alert'):
+                        # Créer l'alerte
+                        alert = ProjectAlert.create_from_scraped_project(scraped_project)
+                        alerts_created += 1
+                    
+                        if alert.priority_level in ['high', 'urgent']:
+                            high_priority_alerts += 1
+                    
+                        self.stdout.write(f"   🔔 Alerte créée: {alert.title[:50]}... (Priorité: {alert.priority_level})")
+                
+                except ScrapedProject.DoesNotExist:
+                    continue
+                except Exception as e:
+                    self.stdout.write(f"   ⚠️ Erreur création alerte: {e}")
+                    continue
+        
+            if alerts_created > 0:
+                self.stdout.write(self.style.SUCCESS(f"✅ {alerts_created} alertes créées ({high_priority_alerts} haute priorité)"))
+            
+                # Envoyer l'email de notification groupée
+                self.send_project_alerts_email(alerts_created, high_priority_alerts)
+        
+            return alerts_created
+        
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f"❌ Erreur système alertes: {e}"))
+            return 0
 
+    def send_project_alerts_email(self, total_alerts, high_priority_count):
+        """Envoyer un email de notification pour les nouvelles alertes"""
+        try:
+            from django.core.mail import send_mail
+            from django.conf import settings
+            from main_app.models import ProjectAlert, CustomUser
+        
+            # Récupérer les alertes récentes
+            recent_alerts = ProjectAlert.objects.filter(
+                status='active',
+                alert_created_at__gte=timezone.now() - timedelta(hours=1)
+            ).order_by('-priority_level', '-alert_created_at')[:10]
+        
+            # Construire le message email
+            subject = f"🔔 {total_alerts} nouveau{'x' if total_alerts > 1 else ''} projet{'s' if total_alerts > 1 else ''} de financement climatique détecté{'s' if total_alerts > 1 else ''}"
+        
+            message_parts = [
+                "🌍 NOUVELLES OPPORTUNITÉS DE FINANCEMENT CLIMATIQUE",
+                "=" * 60,
+                f"📊 Total nouveaux projets: {total_alerts}",
+                f"🔥 Haute priorité: {high_priority_count}",
+                f"📅 Détectés le: {timezone.now().strftime('%d/%m/%Y à %H:%M')}",
+                "",
+                "📋 APERÇU DES NOUVEAUX PROJETS:",
+                "-" * 40
+            ]
+        
+            for i, alert in enumerate(recent_alerts[:5], 1):
+                priority_indicator = {
+                    'urgent': '🚨',
+                    'high': '🔥',
+                    'medium': '📋',
+                    'low': '📝'
+                }.get(alert.priority_level, '📋')
+            
+                message_parts.extend([
+                    f"{i}. {priority_indicator} [{alert.get_source_display()}] {alert.title[:80]}",
+                    f"   💰 Financement: {alert.total_funding}",
+                    f"   🏢 Organisation: {alert.organization}",
+                    f"   📊 Score qualité: {alert.data_completeness_score}%",
+                    f"   🎯 Priorité: {alert.get_priority_level_display()}",
+                    ""
+                ])
+        
+            if len(recent_alerts) > 5:
+                message_parts.append(f"... et {len(recent_alerts) - 5} autres projets")
+        
+            message_parts.extend([
+                "",
+                "🎯 ACTIONS RECOMMANDÉES:",
+                "• Consulter les nouvelles alertes dans l'interface admin",
+                "• Évaluer les opportunités haute priorité en premier",
+                "• Vérifier les critères d'éligibilité pour la Mauritanie",
+                "• Préparer les dossiers de candidature",
+                "",
+                "💻 ACCÈS RAPIDE:",
+                "• Interface admin: /admin/main_app/projectalert/",
+                "• Page alertes: /suivez-appels",
+                "• API alertes: /api/project-alerts/",
+                "",
+                f"Système automatique de veille - {timezone.now().strftime('%d/%m/%Y %H:%M')}",
+                "Pour modifier vos préférences de notification, contactez l'administrateur."
+            ])
+        
+            full_message = "\n".join(message_parts)
+        
+            # Récupérer les destinataires (tous les admins actifs)
+            recipients = list(CustomUser.objects.filter(
+                role='admin', 
+                actif=True,
+                email__isnull=False
+            ).exclude(email='').values_list('email', flat=True))
+        
+            if recipients:
+                send_mail(
+                    subject=subject,
+                    message=full_message,
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=recipients,
+                    fail_silently=False
+                )
+            
+                # Marquer les alertes comme ayant été envoyées par email
+                recent_alerts.update(
+                    email_sent=True,
+                    email_sent_at=timezone.now()
+                )
+            
+                self.stdout.write(f"📧 Email d'alerte envoyé à {len(recipients)} destinataire(s)")
+        
+        except Exception as e:
+            self.stdout.write(f"⚠️ Erreur envoi email alertes: {e}")
+        
     def import_data_without_losing_projects(self, df, similarity_threshold, force_import=False):
         """Importe les données en évitant les doublons SANS perdre de projets légitimes"""
         try:
@@ -909,6 +1044,14 @@ class Command(BaseCommand):
                             error_msg = f"Élément '{row.get('title', 'UNKNOWN')[:30]}...': {str(individual_error)}"
                             errors.append(error_msg)
 
+            # Créer des alertes pour les nouveaux projets importés
+            alerts_created = 0
+            if success_count > 0:
+                try:
+                    alerts_created = self.create_project_alerts(new_projects_df)
+                except Exception as e:
+                    self.stdout.write(f"⚠️ Erreur lors de la création des alertes: {e}")
+
             # Rapport final détaillé
             self.stdout.write(f"\n📊 RAPPORT FINAL DE COLLECTION:")
             total_processed = len(df)
@@ -916,6 +1059,7 @@ class Command(BaseCommand):
             
             self.stdout.write(f"   ✅ Éléments collectés avec succès: {success_count}")
             self.stdout.write(f"   ⚠️ Doublons évidents évités: {total_duplicates}")
+            self.stdout.write(f"   🔔 Alertes créées: {alerts_created}")
             self.stdout.write(f"   📈 Taux de réussite: {success_count}/{total_processed} ({success_count/total_processed*100:.1f}%)")
             
             # Statistiques détaillées par source
@@ -939,7 +1083,7 @@ class Command(BaseCommand):
 
             # Statistiques finales
             if success_count > 0:
-                self.generate_import_statistics(engine, success_count)
+                self.generate_import_statistics(engine, success_count, alerts_created)
 
             return success_count
 
@@ -949,42 +1093,57 @@ class Command(BaseCommand):
             traceback.print_exc()
             return 0
 
-    def generate_import_statistics(self, engine, new_count):
-        """Génère des statistiques après importation avec correction du problème CLIMATE_FU"""
+    def generate_import_statistics(self, engine, new_count, alerts_count=0):
+        """Génère des statistiques après importation avec alertes"""
         try:
             with engine.connect() as conn:
                 # Statistiques globales
                 result = conn.execute(text(f"SELECT COUNT(*) FROM {self.DB_CONFIG['main_table']}"))
                 total_count = result.fetchone()[0]
-                
+            
                 # Par source avec noms explicites
                 result = conn.execute(text(f"""
                     SELECT source, COUNT(*) as count, AVG(data_completeness_score) as avg_score
                     FROM {self.DB_CONFIG['main_table']} 
                     GROUP BY source
-                """))
+                    """))
                 source_stats = result.fetchall()
-                
+            
                 # Projets récents (dernières 24h)
                 result = conn.execute(text(f"""
                     SELECT COUNT(*) FROM {self.DB_CONFIG['main_table']} 
                     WHERE scraped_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                """))
+                    """))
                 recent_count = result.fetchone()[0]
-                
+            
                 # Statistiques spéciales pour Climate Funds
                 result = conn.execute(text(f"""
                     SELECT COUNT(*) FROM {self.DB_CONFIG['main_table']} 
                     WHERE source = 'CLIMATE_FUND'
-                """))
+                    """))
                 climate_funds_count = result.fetchone()[0]
+            
+                # Statistiques des alertes si le modèle existe
+                try:
+                    from main_app.models import ProjectAlert
+                    active_alerts = ProjectAlert.objects.filter(status='active').count()
+                    high_priority_alerts = ProjectAlert.objects.filter(
+                        status='active',
+                        priority_level__in=['high', 'urgent']
+                    ).count()
+                except:
+                    active_alerts = 0
+                    high_priority_alerts = 0
 
             self.stdout.write(f"\n📈 STATISTIQUES POST-IMPORTATION:")
             self.stdout.write(f"   📊 Total en base: {total_count} éléments")
             self.stdout.write(f"   🆕 Ajoutés aujourd'hui: {recent_count} éléments")
             self.stdout.write(f"   🌍 Fonds climatiques globaux: {climate_funds_count} éléments")
+            if alerts_count > 0:
+                self.stdout.write(f"   🔔 Nouvelles alertes créées: {alerts_count}")
+                self.stdout.write(f"   🚨 Alertes actives: {active_alerts} (dont {high_priority_alerts} haute priorité)")
             self.stdout.write(f"   📋 Répartition par source:")
-            
+        
             for source, count, avg_score in source_stats:
                 source_name = {
                     'GEF': 'GEF (Projets Mauritanie)',

@@ -6,7 +6,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.db import models
 from .models import (
-    CustomUser, Project, Document, DocumentType, Notification, 
+    CustomUser, Project, Document, DocumentType, Notification, ProjectAlert, 
     ScrapedProject, ScrapingSession, ProjectRequest
 )
 
@@ -115,6 +115,27 @@ class UserLoginSerializer(serializers.Serializer):
         else:
             raise serializers.ValidationError("Username et password requis")
 
+class ProjectAlertSerializer(serializers.ModelSerializer):
+    source_display = serializers.CharField(source='get_source_display', read_only=True)
+    priority_level_display = serializers.CharField(source='get_priority_level_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    time_since_alert = serializers.ReadOnlyField()
+    alert_icon = serializers.ReadOnlyField()
+    priority_color = serializers.ReadOnlyField()
+    scraped_project_id = serializers.IntegerField(source='scraped_project.id', read_only=True)
+    
+    class Meta:
+        model = ProjectAlert
+        fields = [
+            'id', 'scraped_project', 'scraped_project_id', 'title', 'source', 'source_display',
+            'source_url', 'description', 'organization', 'project_type',
+            'total_funding', 'funding_amount', 'country', 'data_completeness_score',
+            'alert_created_at', 'is_new_this_week', 'is_featured',
+            'priority_level', 'priority_level_display', 'priority_color',
+            'status', 'status_display', 'email_sent', 'email_sent_at',
+            'time_since_alert', 'alert_icon'
+        ]
+        read_only_fields = ['alert_created_at', 'time_since_alert', 'alert_icon', 'priority_color']
 # =============================================================================
 # SERIALIZERS POUR LES PROJETS SCRAPÉS
 # =============================================================================
