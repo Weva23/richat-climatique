@@ -1,5 +1,5 @@
 // =============================================================================
-// HEADER.TSX - MISE À JOUR DE VOTRE VERSION EXISTANTE AVEC BACKEND
+// HEADER.TSX - MISE Ã€ JOUR DE VOTRE VERSION EXISTANTE AVEC BACKEND
 // =============================================================================
 import { Search, User, Database, Wifi, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,7 @@ const Header = ({ activeSection, onSectionChange }: HeaderProps) => {
               ) : (
                 <>
                   <WifiOff className="w-3 h-3 text-red-500" />
-                  <span className="text-xs text-red-600">Déconnecté</span>
+                  <span className="text-xs text-red-600">DÃ©connectÃ©</span>
                 </>
               )}
             </div>
@@ -66,7 +66,7 @@ const Header = ({ activeSection, onSectionChange }: HeaderProps) => {
             >
               Dossiers
             </Button>
-            {/* Nouveau bouton pour les données scrapées */}
+            {/* Nouveau bouton pour les donnÃ©es scrapÃ©es */}
             <Button 
               variant="ghost" 
               size="sm" 
@@ -74,8 +74,17 @@ const Header = ({ activeSection, onSectionChange }: HeaderProps) => {
               onClick={() => navigate("/scraped-projects")}
             >
               <Database className="w-4 h-4 mr-1" />
-              Données Scrapées
+              DonnÃ©es ScrapÃ©es
             </Button>
+            {/* <Button 
+              variant="ghost" 
+              size="sm" 
+              className={location.pathname === "/project-requests" ? "bg-primary-light text-primary" : "text-muted-foreground"}
+              onClick={() => navigate("/project-requests")}
+            >
+              <Database className="w-4 h-4 mr-1" />
+              Gestion des Demandes 
+            </Button> */}
           </nav>
         </div>
 
@@ -88,7 +97,7 @@ const Header = ({ activeSection, onSectionChange }: HeaderProps) => {
             />
           </div>
           
-          {/* Votre NotificationDropdown existant - maintenant connecté au backend */}
+          {/* Votre NotificationDropdown existant - maintenant connectÃ© au backend */}
           <NotificationDropdown />
           
           <Button 

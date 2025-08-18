@@ -252,72 +252,41 @@ class ConsultantViewSet(viewsets.ReadOnlyModelViewSet):
 # VIEWSETS POUR LES PROJETS SCRAPÉS
 # =============================================================================
 class ScrapedProjectViewSet(viewsets.ModelViewSet):
-    """ViewSet pour les projets scrapés"""
+    """ViewSet pour les projets scrapés - SANS PAGINATION"""
     queryset = ScrapedProject.objects.all()
     serializer_class = ScrapedProjectSerializer
-    permission_classes = [AllowAny]  # Temporaire pour debug
+    permission_classes = [AllowAny]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['source', 'is_relevant_for_mauritania', 'needs_review', 'linked_project']
     search_fields = ['title', 'organization', 'description']
     ordering_fields = ['scraped_at', 'data_completeness_score', 'funding_amount']
     ordering = ['-scraped_at']
     
-    @action(detail=False, methods=['get'])
-    def stats(self, request):
-        """Statistiques des projets scrapés"""
-        try:
-            total_scraped = ScrapedProject.objects.count()
-            
-            # Par source
-            by_source = {}
-            for source_code, source_name in ScrapedProject.SOURCE_CHOICES:
-                by_source[source_code] = ScrapedProject.objects.filter(source=source_code).count()
-            
-            # Par score de complétude
-            by_completeness_score = {
-                'excellent': ScrapedProject.objects.filter(data_completeness_score__gte=90).count(),
-                'good': ScrapedProject.objects.filter(data_completeness_score__gte=70, data_completeness_score__lt=90).count(),
-                'fair': ScrapedProject.objects.filter(data_completeness_score__gte=50, data_completeness_score__lt=70).count(),
-                'poor': ScrapedProject.objects.filter(data_completeness_score__lt=50).count(),
-            }
-            
-            # Autres statistiques
-            ready_projects = ScrapedProject.objects.filter(
-                linked_project__isnull=True,
-                is_relevant_for_mauritania=True,
-                data_completeness_score__gte=60
-            ).count()
-            
-            linked_projects = ScrapedProject.objects.filter(linked_project__isnull=False).count()
-            needs_review = ScrapedProject.objects.filter(needs_review=True).count()
-            
-            # Score moyen de complétude
-            avg_completeness = ScrapedProject.objects.aggregate(
-                avg_score=models.Avg('data_completeness_score')
-            )['avg_score'] or 0
-            
-            # Sessions récentes
-            recent_sessions = ScrapingSession.objects.all()[:5]
-            
-            stats_data = {
-                'total_scraped': total_scraped,
-                'by_source': by_source,
-                'by_completeness_score': by_completeness_score,
-                'ready_projects': ready_projects,
-                'linked_projects': linked_projects,
-                'needs_review': needs_review,
-                'avg_completeness_score': round(avg_completeness, 2),
-                'recent_sessions': ScrapingSessionSerializer(recent_sessions, many=True).data
-            }
-            
-            return Response(stats_data)
-            
-        except Exception as e:
-            logger.error(f"Erreur stats projets scrapés: {e}")
-            return Response({
-                'error': 'Erreur lors du calcul des statistiques'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+    # ✅ DÉSACTIVER COMPLÈTEMENT LA PAGINATION
+    pagination_class = None
+    
+    def list(self, request, *args, **kwargs):
+        """Override complet pour retourner TOUS les projets"""
+        print(f"🔍 API appelée avec paramètres: {request.query_params}")
+        
+        # Appliquer les filtres
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # Compter le total
+        total_count = queryset.count()
+        print(f"📊 Total en base après filtres: {total_count}")
+        
+        # RETOURNER TOUS LES PROJETS SANS PAGINATION
+        serializer = self.get_serializer(queryset, many=True)
+        
+        print(f"✅ Retour de {len(serializer.data)} projets")
+        
+        return Response({
+            'count': total_count,
+            'next': None,
+            'previous': None,
+            'results': serializer.data
+        })
 # =============================================================================
 # VIEWSETS POUR LES PROJETS DJANGO
 # =============================================================================

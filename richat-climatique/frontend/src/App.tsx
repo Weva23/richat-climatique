@@ -13,6 +13,7 @@ import DossiersCandidature from "./pages/DossiersCandidature";
 import Login from "./pages/Login";
 import Profile from "./pages/Profile";
 import ScrapedProjects from "./pages/ScrapedProjects";
+import AdminClientRequests from "./pages/AdminClientRequests";
 
 // Import de la nouvelle page CLIENT
 import ClientDashboard from "./pages/ClientDashboard";
@@ -27,7 +28,7 @@ const queryClient = new QueryClient({
   },
 });
 
-// Composant de protection des routes avec vérification de rôle
+// Composant de protection des routes avec vÃ©rification de rÃ´le
 const ProtectedRoute: React.FC<{ 
   children: React.ReactNode;
   requiredRole?: 'admin' | 'client';
@@ -46,9 +47,9 @@ const ProtectedRoute: React.FC<{
     return <Navigate to="/login" replace />;
   }
 
-  // Vérifier le rôle si spécifié
+  // VÃ©rifier le rÃ´le si spÃ©cifiÃ©
   if (requiredRole && user?.role !== requiredRole) {
-    // Rediriger vers le dashboard approprié
+    // Rediriger vers le dashboard appropriÃ©
     const redirectPath = user?.is_admin ? '/' : '/client-dashboard';
     return <Navigate to={redirectPath} replace />;
   }
@@ -104,6 +105,11 @@ const App = () => (
                 <ScrapedProjects />
               </ProtectedRoute>
             } />
+            <Route path="/project-requests" element={
+              <ProtectedRoute requiredRole="admin">
+                <AdminClientRequests />
+              </ProtectedRoute>
+            } />
             
             {/* Route CLIENT - nouveau dashboard */}
             <Route path="/client-dashboard" element={
@@ -112,7 +118,7 @@ const App = () => (
               </ProtectedRoute>
             } />
             
-            {/* Route profil - accessible aux deux rôles */}
+            {/* Route profil - accessible aux deux rÃ´les */}
             <Route path="/profile" element={
               <ProtectedRoute>
                 <Profile />

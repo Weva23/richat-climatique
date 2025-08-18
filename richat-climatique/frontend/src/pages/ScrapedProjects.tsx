@@ -1,6 +1,3 @@
-// =============================================================================
-// PAGE PRINCIPALE POUR LES PROJETS SCRAPÉS - AVEC PAGINATION CORRIGÉE
-// =============================================================================
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -1025,4 +1022,3 @@ const ScrapedProjects = () => {
 };
 
 export default ScrapedProjects;
-                            

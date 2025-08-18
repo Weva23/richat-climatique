@@ -15,14 +15,14 @@ const SuivezAppels = () => {
       color: "text-success"
     },
     {
-      title: "À venir",
+      title: "Ã€ venir",
       value: "0", 
       icon: Clock,
       color: "text-warning"
     },
     {
       title: "Montant total",
-      value: "0€",
+      value: "0â‚¬",
       icon: Euro,
       color: "text-primary"
     },
@@ -40,7 +40,7 @@ const SuivezAppels = () => {
       
       <div className="p-8 space-y-6">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground mb-1">Suivez les appels à projets des fonds climatiques internationaux</h1>
+          <h1 className="text-2xl font-semibold text-foreground mb-1">Suivez les appels Ã  projets des fonds climatiques internationaux</h1>
         </div>
 
         <div className="flex gap-4 items-center">
@@ -65,10 +65,10 @@ const SuivezAppels = () => {
 
           <Select>
             <SelectTrigger className="w-40">
-              <SelectValue placeholder="Région" />
+              <SelectValue placeholder="RÃ©gion" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Toutes régions</SelectItem>
+              <SelectItem value="all">Toutes rÃ©gions</SelectItem>
               <SelectItem value="africa">Afrique</SelectItem>
               <SelectItem value="asia">Asie</SelectItem>
             </SelectContent>

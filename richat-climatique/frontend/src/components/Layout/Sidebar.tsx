@@ -50,7 +50,7 @@ const Sidebar = ({ activeSection, onSectionChange }: SidebarProps) => {
     {
       id: "notifications",
       label: "Notifications récentes",
-      description: "Dernières activités",
+      description: "Gestion des Demandes",
       icon: Bell,
     },
     {
