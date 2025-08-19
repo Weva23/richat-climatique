@@ -13,9 +13,10 @@ import DossiersCandidature from "./pages/DossiersCandidature";
 import Login from "./pages/Login";
 import Profile from "./pages/Profile";
 import ScrapedProjects from "./pages/ScrapedProjects";
-
-// Import de la nouvelle page CLIENT
 import ClientDashboard from "./pages/ClientDashboard";
+import ClientDocuments from "./pages/ClientDocuments";
+// Import de la nouvelle page CLIENT
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -116,6 +117,11 @@ const App = () => (
             <Route path="/profile" element={
               <ProtectedRoute>
                 <Profile />
+              </ProtectedRoute>
+            } />
+            <Route path="/documents-client" element={
+              <ProtectedRoute requiredRole="client">
+                <ClientDocuments />
               </ProtectedRoute>
             } />
             
