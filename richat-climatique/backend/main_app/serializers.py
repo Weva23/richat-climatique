@@ -116,6 +116,51 @@ class UserLoginSerializer(serializers.Serializer):
         else:
             raise serializers.ValidationError("Username et password requis")
 
+
+# Dans serializers.py :
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+class ChangePasswordSerializer(serializers.Serializer):
+    """Serializer pour le changement de mot de passe"""
+    old_password = serializers.CharField(required=True)
+    new_password = serializers.CharField(required=True, validators=[validate_password])
+    
+    def validate_old_password(self, value):
+        user = self.context['request'].user
+        if not user.check_password(value):
+            raise serializers.ValidationError("Le mot de passe actuel est incorrect")
+        return value
+    
+    def validate_new_password(self, value):
+        # Validation Django standard + personnalisée
+        user = self.context['request'].user
+        validate_password(value, user)
+        return value
+    
+    def save(self, **kwargs):
+        user = self.context['request'].user
+        user.set_password(self.validated_data['new_password'])
+        user.save()
+        return user
+
+class ProfilePictureSerializer(serializers.ModelSerializer):
+    """Serializer pour l'upload de photo de profil"""
+    profile_picture = serializers.ImageField(required=True)
+    
+    class Meta:
+        model = CustomUser
+        fields = ['profile_picture']
+    
+    def validate_profile_picture(self, value):
+        # Validation de la taille (max 5MB)
+        if value.size > 5 * 1024 * 1024:
+            raise serializers.ValidationError("L'image ne doit pas dépasser 5MB")
+        
+        # Validation du type de fichier
+        if not value.content_type.startswith('image/'):
+            raise serializers.ValidationError("Le fichier doit être une image")
+        
+        return value
 class ProjectAlertSerializer(serializers.ModelSerializer):
     source_display = serializers.CharField(source='get_source_display', read_only=True)
     priority_level_display = serializers.CharField(source='get_priority_level_display', read_only=True)

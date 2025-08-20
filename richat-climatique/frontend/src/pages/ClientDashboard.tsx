@@ -18,6 +18,7 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface ScrapedProject {
   id: number;
@@ -158,6 +159,18 @@ const ClientProjectSelection = () => {
     pending_docs: 0
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fonction pour construire l'URL complète de l'image
+  const getProfilePictureUrl = (profilePicture: string | null | undefined) => {
+    if (!profilePicture) return "";
+    
+    if (profilePicture.startsWith('http')) {
+      return profilePicture;
+    } else {
+      // Construire l'URL complète depuis le chemin relatif
+      return `http://localhost:8000${profilePicture.startsWith('/') ? '' : '/'}${profilePicture}`;
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -469,6 +482,9 @@ const ClientProjectSelection = () => {
     }
   };
 
+  // Déterminer le rôle affiché
+  const roleDisplay = user?.role_display || (user?.is_admin ? "Administrateur" : "Client");
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header Client */}
@@ -476,18 +492,20 @@ const ClientProjectSelection = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center space-x-4">
-              <Building className="w-8 h-8 text-blue-600" />
+             
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">
-                  Sélection de Projets
+                <h1 className="text-2xl font-bold text-blue-600">
+                  RICHAT
                 </h1>
-                <p className="text-gray-600">
-                  {user?.company_name || user?.full_name}
+                <p className="text-blue-600">
+                  Funding Tracker
                 </p>
               </div>
             </div>
             
             <div className="flex items-center gap-4">
+             
+              
               <Button 
                 variant="outline" 
                 onClick={() => navigate('/documents-client')}
@@ -495,6 +513,14 @@ const ClientProjectSelection = () => {
               >
                 <FileText className="w-4 h-4" />
                 Mes Documents
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => navigate('/profile-client')}
+                className="gap-2"
+              >
+                <User className="w-4 h-4" />
+                Profile
               </Button>
               
               <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
@@ -506,8 +532,30 @@ const ClientProjectSelection = () => {
                 <LogOut className="w-4 h-4 mr-2" />
                 Déconnexion
               </Button>
+               {/* Photo de profil en haut à droite */}
+              <div className="flex items-center gap-3">
+                <Avatar className="w-10 h-10">
+                  <AvatarImage 
+                    src={getProfilePictureUrl(user?.profile_picture)} 
+                    alt={user?.full_name || "Profile"} 
+                    onError={(e) => {
+                      // En cas d'erreur de chargement de l'image, on cache l'élément image
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = 'none';
+                    }}
+                  />
+                  <AvatarFallback className="bg-blue-100 text-blue-800">
+                    {user?.initials || (user?.first_name?.[0] || "") + (user?.last_name?.[0] || "")}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="hidden sm:block">
+                  <p className="text-sm font-medium">{user?.full_name || user?.username}</p>
+                  <p className="text-xs text-gray-500">{user?.company_name}</p>
+                </div>
+              </div>
             </div>
           </div>
+          
         </div>
       </header>
 
@@ -810,37 +858,7 @@ const ClientProjectSelection = () => {
                   Précédent
                 </Button>
                 
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
-                    // Calculer le numéro de page à afficher
-                    let pageNum;
-                    if (pagination.totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (pagination.currentPage <= 3) {
-                      pageNum = i + 1;
-                    } else if (pagination.currentPage >= pagination.totalPages - 2) {
-                      pageNum = pagination.totalPages - 4 + i;
-                    } else {
-                      pageNum = pagination.currentPage - 2 + i;
-                    }
-                    
-                    return (
-                      <Button
-                        key={pageNum}
-                        variant={pagination.currentPage === pageNum ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => {
-                          const pageSize = 10; // Taille de page par défaut
-                          const offset = (pageNum - 1) * pageSize;
-                          loadScrapedProjects(`/scraped-projects/?limit=${pageSize}&offset=${offset}`);
-                        }}
-                        className="w-8 h-8 p-0"
-                      >
-                        {pageNum}
-                      </Button>
-                    );
-                  })}
-                </div>
+               
                 
                 <Button
                   variant="outline"
@@ -992,25 +1010,18 @@ const ClientProjectSelection = () => {
           </DialogContent>
         </Dialog>
 
-      
-
         {/* Footer informatif */}
         <Card className="mt-8 bg-blue-50 border-blue-200">
           <CardContent className="p-6 text-center">
-            
-            
-            
             <div className="mt-6 p-4 bg-white rounded border border-blue-200">
               <p className="text-xs text-blue-600">
-                📧 Contact : <strong>candidatures@richat-funding.mr</strong> | 
-                📞 Support : <strong>+222 XX XX XX XX</strong> | 
+                📧 Contact : <strong>oumar.parhe-sow@richat-partners.com</strong> | 
+                📞 Support : <strong>+222 36 84 24 46</strong> | 
                 🌐 Bureau : Nouakchott, Mauritanie
               </p>
             </div>
           </CardContent>
         </Card>
-
-        
       </main>
     </div>
   );

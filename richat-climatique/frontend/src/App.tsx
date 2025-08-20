@@ -15,6 +15,7 @@ import Profile from "./pages/Profile";
 import ScrapedProjects from "./pages/ScrapedProjects";
 import ClientDashboard from "./pages/ClientDashboard";
 import ClientDocuments from "./pages/ClientDocuments";
+import ProfileClient from "./pages/ProfileClient";
 // Import de la nouvelle page CLIENT
 
 
@@ -122,6 +123,11 @@ const App = () => (
             <Route path="/documents-client" element={
               <ProtectedRoute requiredRole="client">
                 <ClientDocuments />
+              </ProtectedRoute>
+            } />
+            <Route path="/profile-client" element={
+              <ProtectedRoute requiredRole="client">
+                <ProfileClient />
               </ProtectedRoute>
             } />
             

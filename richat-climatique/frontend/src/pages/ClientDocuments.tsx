@@ -15,6 +15,7 @@ import { useNavigate } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import apiClient from '@/services/api';
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface Document {
   id: number;
@@ -128,6 +129,21 @@ const ClientDocuments = () => {
 
   const stats = getStats();
 
+  // Fonction pour construire l'URL complète de l'image
+  const getProfilePictureUrl = (profilePicture: string | null | undefined) => {
+    if (!profilePicture) return "";
+    
+    if (profilePicture.startsWith('http')) {
+      return profilePicture;
+    } else {
+      // Construire l'URL complète depuis le chemin relatif
+      return `http://localhost:8000${profilePicture.startsWith('/') ? '' : '/'}${profilePicture}`;
+    }
+  };
+
+  // Déterminer le rôle affiché
+  const roleDisplay = user?.role_display || (user?.is_admin ? "Administrateur" : "Client");
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header Client */}
@@ -154,6 +170,7 @@ const ClientDocuments = () => {
             </div>
             
             <div className="flex items-center gap-4">
+              
               <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
                 <CheckCircle className="w-3 h-3 mr-1" />
                 Client connecté
@@ -163,6 +180,27 @@ const ClientDocuments = () => {
                 <LogOut className="w-4 h-4 mr-2" />
                 Déconnexion
               </Button>
+               {/* Photo de profil en haut à droite */}
+              <div className="flex items-center gap-3">
+                <Avatar className="w-10 h-10">
+                  <AvatarImage 
+                    src={getProfilePictureUrl(user?.profile_picture)} 
+                    alt={user?.full_name || "Profile"} 
+                    onError={(e) => {
+                      // En cas d'erreur de chargement de l'image, on cache l'élément image
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = 'none';
+                    }}
+                  />
+                  <AvatarFallback className="bg-blue-100 text-blue-800">
+                    {user?.initials || (user?.first_name?.[0] || "") + (user?.last_name?.[0] || "")}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="hidden sm:block">
+                  <p className="text-sm font-medium">{user?.full_name || user?.username}</p>
+                  <p className="text-xs text-gray-500">{user?.company_name}</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>

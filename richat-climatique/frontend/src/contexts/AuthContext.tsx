@@ -6,6 +6,9 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { toast } from 'sonner';
 
 export interface User {
+  last_login: string | number | Date;
+  date_joined: string | number | Date;
+  initials: string;
   id: number;
   username: string;
   email: string;
@@ -299,34 +302,72 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateProfile = async (profileData: Partial<User>) => {
-    try {
-      const token = localStorage.getItem('authToken');
-      
-      const response = await fetch(`${API_BASE_URL}/auth/profile/`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Token ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(profileData),
-      });
+  // MISE À JOUR de la fonction updateProfile dans AuthContext.tsx
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Erreur mise à jour profil');
+const updateProfile = async (profileData: Partial<User>) => {
+  try {
+    const token = localStorage.getItem('authToken');
+    
+    // Filtrer seulement les champs autorisés par le backend
+    const allowedFields = {
+      first_name: profileData.first_name,
+      last_name: profileData.last_name,
+      email: profileData.email,
+      phone: profileData.phone,
+      company_name: profileData.company_name
+    };
+
+    // Supprimer les champs undefined
+    const cleanedData = Object.fromEntries(
+      Object.entries(allowedFields).filter(([_, value]) => value !== undefined)
+    );
+
+    console.log('🔄 Mise à jour profil avec:', cleanedData);
+
+    const response = await fetch(`${API_BASE_URL}/auth/profile/`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Token ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(cleanedData),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('❌ Erreur backend:', errorData);
+      
+      // Messages d'erreur spécifiques
+      if (errorData.details) {
+        const errorMessages = Object.entries(errorData.details)
+          .map(([field, messages]: [string, any]) => 
+            `${field}: ${Array.isArray(messages) ? messages.join(', ') : messages}`
+          ).join('\n');
+        throw new Error(errorMessages);
       }
-
-      const updatedProfile = await response.json();
-      setUser(updatedProfile.user || updatedProfile);
-      localStorage.setItem('user', JSON.stringify(updatedProfile.user || updatedProfile));
-      toast.success('Profil mis à jour');
       
-    } catch (error: any) {
-      console.error('❌ Erreur update profil:', error);
-      throw error;
+      throw new Error(errorData.error || 'Erreur mise à jour profil');
     }
-  };
+
+    const updatedData = await response.json();
+    
+    // Mettre à jour l'utilisateur avec les nouvelles données
+    const updatedUser = {
+      ...user,
+      ...updatedData.user || updatedData,
+      full_name: `${(updatedData.user || updatedData).first_name} ${(updatedData.user || updatedData).last_name}`
+    };
+
+    setUser(updatedUser);
+    localStorage.setItem('user', JSON.stringify(updatedUser));
+    
+    console.log('✅ Profil mis à jour:', updatedUser.full_name);
+    
+  } catch (error: any) {
+    console.error('❌ Erreur updateProfile:', error);
+    throw error;
+  }
+};
 
   return (
     <AuthContext.Provider value={{

@@ -7,12 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { User, Mail, Calendar, Shield, LogOut, Phone, Building2, AlertCircle, CheckCircle2, Camera, Key, Eye, EyeOff } from "lucide-react";
+import { User, Mail, Calendar, Shield, LogOut, Phone, Building2, AlertCircle, CheckCircle2, Camera, Key, Eye, EyeOff, ChevronLeft, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 import Header from "@/components/Layout/Header";
 import { useAuth } from "@/contexts/AuthContext";
 
-const Profile = () => {
+const ProfileClient = () => {
   const navigate = useNavigate();
   const { user, logout, updateProfile, isAuthenticated, loading } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
@@ -48,42 +48,41 @@ const Profile = () => {
     }
   }, [isAuthenticated, loading, navigate]);
 
-  // Initialiser le profil avec les données utilisateur//
+  // Initialiser le profil avec les données utilisateur
   useEffect(() => {
-  if (user) {
-    // Construire l'URL complète pour l'image de profil
-    let profilePictureUrl = "";
-    if (user.profile_picture) {
-      if (user.profile_picture.startsWith('http')) {
-        profilePictureUrl = user.profile_picture;
-      } else {
-        // Construire l'URL complète depuis le chemin relatif
-        profilePictureUrl = `http://localhost:8000/${user.profile_picture}`;
+    if (user) {
+      // Construire l'URL complète pour l'image de profil
+      let profilePictureUrl = "";
+      if (user.profile_picture) {
+        if (user.profile_picture.startsWith('http')) {
+          profilePictureUrl = user.profile_picture;
+        } else {
+          // Construire l'URL complète depuis le chemin relatif
+          profilePictureUrl = `http://localhost:8000/${user.profile_picture}`;
+        }
       }
+
+      setDisplayUser(user);
+      setProfile({
+        first_name: user.first_name || "",
+        last_name: user.last_name || "",
+        email: user.email || "",
+        phone: user.phone || "",
+        company_name: user.company_name || ""
+      });
+      
+      // Utiliser l'URL complète pour previewImage
+      setPreviewImage(profilePictureUrl);
+      
+      // DÉBOGAGE - Ajoutez ces console.log pour voir ce qui se passe
+      console.log("=== DEBUG IMAGE PROFILE ===");
+      console.log("user.profile_picture:", user.profile_picture);
+      console.log("profilePictureUrl construite:", profilePictureUrl);
+      console.log("previewImage définie à:", profilePictureUrl);
+      console.log("displayUser:", user);
+      console.log("========================");
     }
-
-    setDisplayUser(user);
-    setProfile({
-      first_name: user.first_name || "",
-      last_name: user.last_name || "",
-      email: user.email || "",
-      phone: user.phone || "",
-      company_name: user.company_name || ""
-    });
-    
-    // Utiliser l'URL complète pour previewImage
-    setPreviewImage(profilePictureUrl);
-    
-    // DÉBOGAGE - Ajoutez ces console.log pour voir ce qui se passe
-    console.log("=== DEBUG IMAGE PROFILE ===");
-    console.log("user.profile_picture:", user.profile_picture);
-    console.log("profilePictureUrl construite:", profilePictureUrl);
-    console.log("previewImage définie à:", profilePictureUrl);
-    console.log("displayUser:", user);
-    console.log("========================");
-  }
-}, [user]);
-
+  }, [user]);
 
   // Fonction pour rafraîchir les données utilisateur
   const refreshUserData = async () => {
@@ -441,7 +440,61 @@ const Profile = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Header activeSection="profile" onSectionChange={() => {}} />
+      {/* Header Client avec photo de profil en haut à droite */}
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div className="flex items-center space-x-4">
+              <Button 
+                variant="outline" 
+                onClick={() => navigate('/client-dashboard')}
+                className="gap-2"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Retour aux projets
+              </Button>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">
+                  Mon Profil
+                </h1>
+                <p className="text-gray-600">
+                  {displayUser?.company_name || displayUser?.full_name}
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-4">
+             
+              
+              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                <CheckCircle className="w-3 h-3 mr-1" />
+                Client connecté
+              </Badge>
+              
+              <Button onClick={handleLogout} variant="destructive" size="sm">
+                <LogOut className="w-4 h-4 mr-2" />
+                Déconnexion
+              </Button>
+               {/* Photo de profil en haut à droite */}
+              <div className="flex items-center gap-3">
+                <Avatar className="w-10 h-10">
+                  <AvatarImage 
+                    src={previewImage || displayUser?.profile_picture} 
+                    alt={displayUser?.full_name || "Profile"} 
+                  />
+                  <AvatarFallback>
+                    {displayUser?.initials || (displayUser?.first_name?.[0] || "") + (displayUser?.last_name?.[0] || "")}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="hidden sm:block">
+                  <p className="text-sm font-medium">{displayUser.full_name || displayUser.username}</p>
+                  <p className="text-xs text-gray-500">{user?.company_name}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
       
       <div className="p-6">
         <div className="max-w-4xl mx-auto space-y-6">
@@ -472,15 +525,6 @@ const Profile = () => {
                   Modifier
                 </Button>
               )}
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="text-destructive hover:text-destructive" 
-                onClick={handleLogout}
-                title="Se déconnecter"
-              >
-                <LogOut className="w-4 h-4" />
-              </Button>
             </div>
           </div>
 
@@ -548,6 +592,22 @@ const Profile = () => {
                   <Mail className="w-4 h-4 text-muted-foreground" />
                   <span className="truncate">{displayUser.email}</span>
                 </div>
+                
+                {displayUser.phone && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Phone className="w-4 h-4 text-muted-foreground" />
+                    <span>{displayUser.phone}</span>
+                  </div>
+                )}
+                
+                {displayUser.company_name && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Building2 className="w-4 h-4 text-muted-foreground" />
+                    <span className="truncate">{displayUser.company_name}</span>
+                  </div>
+                )}
+                
+               
               </CardContent>
             </Card>
 
@@ -584,16 +644,41 @@ const Profile = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email </Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={profile.email}
-                    onChange={(e) => setProfile({...profile, email: e.target.value})}
-                    disabled={!isEditing}
-                    placeholder="votre.email@exemple.com"
-                  />
-                </div>
+                    <Label htmlFor="email">Email </Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={profile.email}
+                      onChange={(e) => setProfile({...profile, email: e.target.value})}
+                      disabled={!isEditing}
+                      placeholder="votre.email@exemple.com"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Téléphone</Label>
+                    <Input
+                      id="phone"
+                      value={profile.phone}
+                      onChange={(e) => setProfile({...profile, phone: e.target.value})}
+                      disabled={!isEditing}
+                      placeholder="+222 XX XX XX XX"
+                    />
+                  </div>
+
+                  {displayUser.is_client && (
+                    <div className="space-y-2">
+                      <Label htmlFor="company">Entreprise</Label>
+                      <Input
+                        id="company"
+                        value={profile.company_name}
+                        onChange={(e) => setProfile({...profile, company_name: e.target.value})}
+                        disabled={!isEditing}
+                        placeholder="Nom de votre entreprise"
+                      />
+                    </div>
+                  )}
+
                 <Separator />
 
                 {/* Section changement de mot de passe */}
@@ -694,7 +779,7 @@ const Profile = () => {
 
                 <Separator />
 
-               
+
               </CardContent>
             </Card>
           </div>
@@ -704,4 +789,4 @@ const Profile = () => {
   );
 };
 
-export default Profile;
+export default ProfileClient;

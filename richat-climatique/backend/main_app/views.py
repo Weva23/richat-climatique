@@ -2,6 +2,8 @@
 # FICHIER: main_app/views.py - SYNTAXE CORRIGÉE
 # =============================================================================
 from datetime import timedelta
+import os
+from django.forms import ValidationError
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
@@ -18,7 +20,7 @@ from django.utils import timezone
 from django.contrib.auth import authenticate
 import logging
 from .models import ProjectAlert
-from .serializers import DocumentActionSerializer, ProjectAlertSerializer
+from .serializers import ChangePasswordSerializer, DocumentActionSerializer, ProfilePictureSerializer, ProjectAlertSerializer
 
 from .models import (
     CustomUser, Project, Document, DocumentType, Notification,
@@ -464,6 +466,127 @@ class ProjectViewSet(viewsets.ModelViewSet):
             logger.error(f"Erreur dashboard stats: {e}")
             return Response({
                 'error': 'Erreur lors du calcul des statistiques'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class ChangePasswordView(APIView):
+    """Vue pour changer le mot de passe"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            serializer = ChangePasswordSerializer(
+                data=request.data,
+                context={'request': request}
+            )
+            
+            if serializer.is_valid():
+                serializer.save()
+                
+                logger.info(f"Mot de passe changé: {request.user.username}")
+                
+                return Response({
+                    'message': 'Mot de passe modifié avec succès'
+                }, status=status.HTTP_200_OK)
+            
+            return Response({
+                'error': 'Données invalides',
+                'details': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except ValidationError as e:
+            return Response({
+                'error': 'Mot de passe invalide',
+                'details': {'new_password': e.messages}
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Erreur changement mot de passe: {e}")
+            return Response({
+                'error': 'Erreur interne du serveur'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+# Dans views.py :
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
+import os
+import logging
+
+logger = logging.getLogger(__name__)
+class UploadProfilePictureView(APIView):
+    """Vue pour uploader la photo de profil"""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    def post(self, request):
+        try:
+            # Supprimer l'ancienne photo si elle existe
+            if request.user.profile_picture:
+                old_picture_path = request.user.profile_picture.path
+                if os.path.exists(old_picture_path):
+                    os.remove(old_picture_path)
+            
+            serializer = ProfilePictureSerializer(
+                request.user,
+                data=request.data,
+                partial=True
+            )
+            
+            if serializer.is_valid():
+                user = serializer.save()
+                
+                logger.info(f"Photo de profil mise à jour: {request.user.username}")
+                
+                return Response({
+                    'message': 'Photo de profil mise à jour avec succès',
+                    'profile_picture': user.profile_picture.url if user.profile_picture else None
+                }, status=status.HTTP_200_OK)
+            
+            return Response({
+                'error': 'Données invalides',
+                'details': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            logger.error(f"Erreur upload photo: {e}")
+            return Response({
+                'error': 'Erreur lors de l\'upload de l\'image'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def delete(self, request):
+        """Supprimer la photo de profil"""
+        try:
+            user = request.user
+            
+            if user.profile_picture:
+                # Supprimer le fichier physique
+                picture_path = user.profile_picture.path
+                if os.path.exists(picture_path):
+                    os.remove(picture_path)
+                
+                # Supprimer la référence en base
+                user.profile_picture = None
+                user.save()
+                
+                logger.info(f"Photo de profil supprimée: {user.username}")
+                
+                return Response({
+                    'message': 'Photo de profil supprimée avec succès'
+                }, status=status.HTTP_200_OK)
+            
+            return Response({
+                'message': 'Aucune photo de profil à supprimer'
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Erreur suppression photo: {e}")
+            return Response({
+                'error': 'Erreur lors de la suppression de l\'image'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # =============================================================================
