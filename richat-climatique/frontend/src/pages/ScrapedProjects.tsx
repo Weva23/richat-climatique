@@ -932,69 +932,6 @@ const ScrapedProjects = () => {
           </Card>
         )}
 
-        {/* Footer avec résumé détaillé */}
-        {projects.length > 0 && (
-          <Card className="bg-muted/30">
-            <CardContent className="p-6 text-center">
-              <h4 className="font-semibold text-lg mb-4">📋 Résumé de la page actuelle</h4>
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
-                <div>
-                  <p className="text-2xl font-bold text-primary">{projects.length}</p>
-                  <p className="text-muted-foreground">Projets sur cette page</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-emerald-600">
-                    {projects.filter(p => p.can_create_project && !p.linked_project).length}
-                  </p>
-                  <p className="text-muted-foreground">Prêts à convertir</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-amber-600">
-                    {projects.filter(p => p.is_relevant_for_mauritania).length}
-                  </p>
-                  <p className="text-muted-foreground">Pertinents Mauritanie</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-blue-600">
-                    {projects.filter(p => p.linked_project).length}
-                  </p>
-                  <p className="text-muted-foreground">Déjà convertis</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-red-600">
-                    {projects.filter(p => p.needs_review).length}
-                  </p>
-                  <p className="text-muted-foreground">À réviser</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-gray-600">
-                    {projects.filter(p => p.source === 'OTHER').length}
-                  </p>
-                  <p className="text-muted-foreground">OECD/Autres</p>
-                </div>
-              </div>
-              
-              {/* Informations de connexion */}
-              <div className="mt-4 pt-4 border-t text-xs text-muted-foreground">
-                <p>
-                  🔗 API: <span className="font-mono">http://127.0.0.1:8000/api/scraped-projects/</span>
-                </p>
-                <p>
-                  📄 Page {currentPage}/{totalPages} • {pageSize} éléments par page • Total: {totalCount} projets
-                </p>
-                <p>
-                  🔄 Sources: GEF ({projects.filter(p => p.source === 'GEF').length}) • 
-                  GCF ({projects.filter(p => p.source === 'GCF').length}) • 
-                  OECD ({projects.filter(p => p.source === 'OTHER').length})
-                </p>
-                <p>
-                  📊 Dernière mise à jour: {new Date().toLocaleString('fr-FR')}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
         {/* Boutons d'action en bas */}
         <div className="flex justify-center gap-4">
           <Button

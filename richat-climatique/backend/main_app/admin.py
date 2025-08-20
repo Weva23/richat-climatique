@@ -43,12 +43,18 @@ class DocumentTypeAdmin(admin.ModelAdmin):
     list_filter = ['obligatoire']
     search_fields = ['name']
 
+from django.contrib import admin
+from .models import Document
+
 @admin.register(Document)
 class DocumentAdmin(admin.ModelAdmin):
-    list_display = ['name', 'project', 'document_type', 'status', 'date_soumission']
-    list_filter = ['status', 'document_type', 'date_soumission']
-    search_fields = ['name', 'project__name']
-    readonly_fields = ['date_soumission']
+    list_display = ('id', 'file', 'status', 'uploaded_at')
+    list_filter = ('status', 'uploaded_at')
+    readonly_fields = ('uploaded_at',)
+    search_fields = ('project__title', 'user__username')
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('project', 'user')
 
 @admin.register(Notification)
 class NotificationAdmin(admin.ModelAdmin):

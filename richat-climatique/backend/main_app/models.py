@@ -2,8 +2,10 @@
 # FICHIER: main_app/models.py - MODÈLES CORRIGÉS
 # =============================================================================
 
+import os
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.forms import ValidationError
 from django.utils import timezone
 from decimal import Decimal
 import hashlib
@@ -358,34 +360,7 @@ class DocumentType(models.Model):
     def __str__(self):
         return self.name
 
-class Document(models.Model):
-    """Documents soumis pour les projets"""
-    STATUS_CHOICES = [
-        ('pending', 'En attente'),
-        ('submitted', 'Soumis'),
-        ('approved', 'Approuvé'),
-        ('rejected', 'Rejeté'),
-        ('expired', 'Expiré'),
-    ]
-    
-    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='documents', verbose_name="Projet")
-    document_type = models.ForeignKey(DocumentType, on_delete=models.CASCADE, verbose_name="Type de document")
-    name = models.CharField(max_length=200, verbose_name="Nom du fichier")
-    file = models.FileField(upload_to='documents/%Y/%m/', verbose_name="Fichier")
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name="Statut")
-    date_soumission = models.DateTimeField(auto_now_add=True, verbose_name="Date de soumission")
-    date_expiration = models.DateField(null=True, blank=True, verbose_name="Date d'expiration")
-    notes = models.TextField(blank=True, verbose_name="Notes")
-    uploaded_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, verbose_name="Uploadé par")
-    
-    class Meta:
-        ordering = ['-date_soumission']
-        verbose_name = "Document"
-        verbose_name_plural = "Documents"
-        unique_together = ['project', 'document_type']
-    
-    def __str__(self):
-        return f"{self.name} - {self.project.name}"
+
 
 # =============================================================================
 # MODÈLE POUR LES NOTIFICATIONS
@@ -946,3 +921,257 @@ class ProjectRequest(models.Model):
             return "3-5 jours"
         else:
             return "5-7 jours"
+        
+        
+def document_upload_path(instance, filename):
+    """Génère le chemin de stockage des documents"""
+    return f"documents/user_{instance.user.id}/project_{instance.project.id}/{filename}"
+
+from django.db import models
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+from django.db import models
+from django.utils import timezone
+import os
+
+
+
+def document_upload_path(instance, filename):
+    """Génère le chemin de stockage : documents/user_id/project_id/filename"""
+    if instance.scraped_project:
+        return f"documents/user_{instance.uploaded_by.id}/scraped_project_{instance.scraped_project.id}/{filename}"
+    elif instance.project:
+        return f"documents/user_{instance.uploaded_by.id}/project_{instance.project.id}/{filename}"
+    else:
+        return f"documents/user_{instance.uploaded_by.id}/misc/{filename}"
+
+class Document(models.Model):
+    STATUS_CHOICES = [
+        ('draft', 'Brouillon'),
+        ('submitted', 'Soumis'),
+        ('reviewed', 'Revu'),
+        ('approved', 'Approuvé'),
+        ('rejected', 'Rejeté'),
+        ('expired', 'Expiré'),
+    ]
+
+    # Relations principales
+    uploaded_by = models.ForeignKey(
+        'CustomUser',
+        on_delete=models.CASCADE,
+        related_name='uploaded_documents',
+        verbose_name="Uploadé par"
+    )
+
+    # Relation avec Project OU ScrapedProject (mutuellement exclusives)
+    project = models.ForeignKey(
+        'Project',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='documents',
+        verbose_name="Projet lié"
+    )
+    
+    scraped_project = models.ForeignKey(
+        'ScrapedProject',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='documents',
+        verbose_name="Projet scrapé lié"
+    )
+
+    # Métadonnées du document
+    name = models.CharField(max_length=200, verbose_name="Nom du document")
+    file = models.FileField(
+        upload_to=document_upload_path,
+        verbose_name="Fichier"
+    )
+    description = models.TextField(blank=True, verbose_name="Description")
+    
+    # NOUVEAU: Message d'accompagnement du client
+    message_accompagnement = models.TextField(
+        blank=True, 
+        verbose_name="Message d'accompagnement",
+        help_text="Message du client expliquant sa candidature pour ce projet"
+    )
+    
+    # Gestion du statut
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='draft',
+        verbose_name="Statut"
+    )
+    
+    # MODIFIÉ: Notes administrateur (renommé pour plus de clarté)
+    notes_admin = models.TextField(
+        blank=True, 
+        verbose_name="Notes administrateur",
+        help_text="Notes internes de l'administrateur"
+    )
+    
+    # MODIFIÉ: Motif de rejet (renommé pour plus de clarté)
+    motif_rejet = models.TextField(
+        blank=True, 
+        verbose_name="Motif de rejet",
+        help_text="Raison détaillée du rejet du document"
+    )
+    
+    # CONSERVÉ: Champ notes générique pour compatibilité
+    notes = models.TextField(blank=True, verbose_name="Notes internes")
+    
+    # CONSERVÉ: Champ rejection_reason pour compatibilité
+    rejection_reason = models.TextField(blank=True, verbose_name="Motif de rejet (ancien)")
+
+    # Dates importantes
+    uploaded_at = models.DateTimeField(auto_now_add=True, verbose_name="Date d'upload")
+    date_soumission = models.DateTimeField(
+        null=True, 
+        blank=True,
+        verbose_name="Date de soumission"
+    )
+    date_expiration = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Date d'expiration"
+    )
+    reviewed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Date de revue"
+    )
+
+    # Type de document
+    document_type = models.ForeignKey(
+        'DocumentType',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Type de document"
+    )
+    
+    # NOUVEAU: Champ pour le traitement par l'admin
+    traite_par = models.ForeignKey(
+        'CustomUser',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='documents_traites',
+        verbose_name="Traité par",
+        help_text="Administrateur qui a traité ce document"
+    )
+
+    class Meta:
+        db_table = 'main_app_document'
+        verbose_name = "Document"
+        verbose_name_plural = "Documents"
+        ordering = ['-date_soumission']
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(project__isnull=False) | models.Q(scraped_project__isnull=False),
+                name='document_has_project_or_scraped_project'
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.get_status_display()})"
+
+    def clean(self):
+        """Validation pour s'assurer qu'un document a un projet ou un projet scrapé"""
+        if not self.project and not self.scraped_project:
+            raise ValidationError("Un document doit être lié à un projet ou un projet scrapé")
+        if self.project and self.scraped_project:
+            raise ValidationError("Un document ne peut être lié qu'à un seul projet (standard ou scrapé)")
+
+    def save(self, *args, **kwargs):
+        """Met à jour automatiquement les métadonnées"""
+        self.clean()  # Validation avant sauvegarde
+        
+        if self.file:
+            # Calcule la taille du fichier en Ko
+            self.file_size = self.file.size // 1024  
+            # Extrait l'extension du fichier
+            self.file_type = os.path.splitext(self.file.name)[1][1:].upper()
+        
+        # Met à jour la date de soumission si le statut change
+        if self.status == 'submitted' and not self.date_soumission:
+            self.date_soumission = timezone.now()
+        
+        # Synchroniser les anciens champs avec les nouveaux pour compatibilité
+        if self.notes_admin and not self.notes:
+            self.notes = self.notes_admin
+        if self.motif_rejet and not self.rejection_reason:
+            self.rejection_reason = self.motif_rejet
+            
+        super().save(*args, **kwargs)
+
+    @property
+    def filename(self):
+        """Retourne le nom du fichier sans le chemin"""
+        return os.path.basename(self.file.name)
+
+    @property 
+    def is_valid(self):
+        """Vérifie si le document est valide (approuvé et non expiré)"""
+        if self.status != 'approved':
+            return False
+        if self.date_expiration and self.date_expiration < timezone.now().date():
+            return False
+        return True
+    
+    @property
+    def status_color(self):
+        """Retourne la couleur CSS pour le statut"""
+        colors = {
+            'draft': 'bg-gray-100 text-gray-800',
+            'submitted': 'bg-yellow-100 text-yellow-800',
+            'reviewed': 'bg-blue-100 text-blue-800',
+            'approved': 'bg-green-100 text-green-800',
+            'rejected': 'bg-red-100 text-red-800',
+            'expired': 'bg-red-100 text-red-800',
+        }
+        return colors.get(self.status, 'bg-gray-100 text-gray-800')
+    
+    def approuver(self, admin_user, notes_admin=""):
+        """Méthode pour approuver un document"""
+        self.status = 'approved'
+        self.notes_admin = notes_admin
+        self.notes = notes_admin  # Synchronisation
+        self.traite_par = admin_user
+        self.reviewed_at = timezone.now()
+        self.save()
+        
+        # Créer une notification pour le client
+        from .models import Notification
+        Notification.objects.create(
+            type='document',
+            title='✅ Document approuvé',
+            message=f'Votre document "{self.name}" a été approuvé par notre équipe.',
+            consultant=self.uploaded_by,
+            read=False
+        )
+    
+    def rejeter(self, admin_user, motif_rejet, notes_admin=""):
+        """Méthode pour rejeter un document"""
+        self.status = 'rejected'
+        self.motif_rejet = motif_rejet
+        self.rejection_reason = motif_rejet  # Synchronisation
+        self.notes_admin = notes_admin
+        self.notes = notes_admin  # Synchronisation
+        self.traite_par = admin_user
+        self.reviewed_at = timezone.now()
+        self.save()
+        
+        # Créer une notification pour le client
+        from .models import Notification
+        Notification.objects.create(
+            type='document',
+            title='❌ Document rejeté',
+            message=f'Votre document "{self.name}" a été rejeté. Motif: {motif_rejet[:100]}{"..." if len(motif_rejet) > 100 else ""}',
+            consultant=self.uploaded_by,
+            read=False
+        )

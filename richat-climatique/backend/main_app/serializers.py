@@ -1,6 +1,7 @@
 # =============================================================================
 # FICHIER: main_app/serializers.py - SERIALIZERS COMPLETS
 # =============================================================================
+from django.forms import ValidationError
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
@@ -158,6 +159,210 @@ class ScrapedProjectSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['scraped_at', 'last_updated', 'unique_hash']
 
+from rest_framework import serializers
+from .models import Document, ScrapedProject, CustomUser
+from django.db.models import Count, Q
+from django.utils import timezone
+from django.db import transaction
+import logging
+
+logger = logging.getLogger(__name__)
+
+class DocumentSerializer(serializers.ModelSerializer):
+    file_name = serializers.SerializerMethodField()
+    file_size = serializers.SerializerMethodField()
+    project_title = serializers.SerializerMethodField()
+    scraped_project_title = serializers.SerializerMethodField()
+    uploaded_by_name = serializers.SerializerMethodField()
+    uploaded_by_email = serializers.SerializerMethodField()
+    uploaded_by_company = serializers.SerializerMethodField()
+    uploaded_by = serializers.SerializerMethodField()
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    status_color = serializers.ReadOnlyField()
+    time_since_upload = serializers.SerializerMethodField()
+    document_type_name = serializers.SerializerMethodField()
+    project = serializers.SerializerMethodField()
+    scraped_project = serializers.SerializerMethodField()
+    traite_par_name = serializers.SerializerMethodField()
+   
+    class Meta:
+        model = Document
+        fields = [
+            'id', 'project', 'project_title', 'scraped_project', 'scraped_project_title',
+            'file', 'file_name', 'file_size', 'description', 'status', 'status_display', 'status_color',
+            'uploaded_at', 'uploaded_by', 'uploaded_by_name', 'uploaded_by_email', 'uploaded_by_company',
+            'notes', 'notes_admin', 'motif_rejet', 'message_accompagnement',  # NOUVEAUX CHAMPS
+            'document_type', 'document_type_name', 'date_soumission', 
+            'date_expiration', 'reviewed_at', 'rejection_reason', 'name', 'time_since_upload',
+            'traite_par', 'traite_par_name'  # NOUVEAU CHAMP
+        ]
+        read_only_fields = ['uploaded_by', 'uploaded_at', 'reviewed_at', 'traite_par']
+    
+    def get_file_name(self, obj):
+        return obj.file.name.split('/')[-1] if obj.file else obj.name
+    
+    def get_file_size(self, obj):
+        return obj.file.size if obj.file else 0
+    
+    def get_traite_par_name(self, obj):
+        """Nom de l'administrateur qui a traité le document"""
+        return obj.traite_par.full_name if obj.traite_par else None
+    
+    def get_project(self, obj):
+        if obj.project:
+            return {
+                'id': obj.project.id,
+                'title': obj.project.name,
+                'name': obj.project.name,
+                'description': getattr(obj.project, 'description', ''),
+                'status': getattr(obj.project, 'status', ''),
+                'project_type': getattr(obj.project, 'type_project', ''),
+                'funding_amount': float(obj.project.montant_demande) if hasattr(obj.project, 'montant_demande') and obj.project.montant_demande else None,
+                'currency': 'USD',
+                'country': getattr(obj.project, 'country', 'Mauritania'),
+                'organization': getattr(obj.project, 'contact_name', '') or getattr(obj.project, 'organization', ''),
+                'source_url': None,
+                'additional_links': None,
+            }
+        return None
+    
+    def get_project_title(self, obj):
+        return obj.project.name if obj.project else None
+    
+    def get_scraped_project(self, obj):
+        if obj.scraped_project:
+            return {
+                'id': obj.scraped_project.id,
+                'title': obj.scraped_project.title,
+                'name': obj.scraped_project.title,
+                'description': obj.scraped_project.description or '',
+                'status': obj.scraped_project.status or '',
+                'project_type': obj.scraped_project.project_type or '',
+                'total_funding': obj.scraped_project.total_funding or '',
+                'funding_amount': float(obj.scraped_project.funding_amount) if obj.scraped_project.funding_amount else None,
+                'currency': obj.scraped_project.currency or 'USD',
+                'country': obj.scraped_project.country or 'Mauritania',
+                'organization': obj.scraped_project.organization or '',
+                'source': obj.scraped_project.source or '',
+                'source_url': obj.scraped_project.source_url or '',
+                'additional_links': obj.scraped_project.additional_links or '',
+                'focal_areas': obj.scraped_project.focal_areas or '',
+                'gef_project_id': getattr(obj.scraped_project, 'gef_project_id', ''),
+                'gcf_document_type': getattr(obj.scraped_project, 'gcf_document_type', ''),
+                'cover_date': getattr(obj.scraped_project, 'cover_date', ''),
+                'data_completeness_score': getattr(obj.scraped_project, 'data_completeness_score', 0),
+            }
+        return None
+    
+    def get_scraped_project_title(self, obj):
+        return obj.scraped_project.title if obj.scraped_project else None
+    
+    def get_uploaded_by(self, obj):
+        if obj.uploaded_by:
+            return {
+                'id': obj.uploaded_by.id,
+                'full_name': obj.uploaded_by.full_name,
+                'email': obj.uploaded_by.email,
+                'company_name': getattr(obj.uploaded_by, 'company_name', '')
+            }
+        return None
+    
+    def get_uploaded_by_name(self, obj):
+        return obj.uploaded_by.full_name if obj.uploaded_by else None
+    
+    def get_uploaded_by_email(self, obj):
+        return obj.uploaded_by.email if obj.uploaded_by else None
+    
+    def get_uploaded_by_company(self, obj):
+        return getattr(obj.uploaded_by, 'company_name', '') if obj.uploaded_by else None
+    
+    def get_document_type_name(self, obj):
+        return obj.document_type.name if obj.document_type else None
+    
+    def get_time_since_upload(self, obj):
+        if not obj.uploaded_at:
+            return ""
+        
+        from django.utils import timezone
+        diff = timezone.now() - obj.uploaded_at
+        
+        if diff.days > 0:
+            return f"il y a {diff.days} jour{'s' if diff.days > 1 else ''}"
+        elif diff.seconds > 3600:
+            hours = diff.seconds // 3600
+            return f"il y a {hours} heure{'s' if hours > 1 else ''}"
+        elif diff.seconds > 60:
+            minutes = diff.seconds // 60
+            return f"il y a {minutes} minute{'s' if minutes > 1 else ''}"
+        else:
+            return "à l'instant"
+
+
+# Serializer spécialisé pour la soumission de documents
+class DocumentSubmissionSerializer(serializers.ModelSerializer):
+    """Serializer pour la soumission de documents par les clients"""
+    
+    class Meta:
+        model = Document
+        fields = [
+            'scraped_project', 'file', 'name', 'description', 
+            'message_accompagnement'  # NOUVEAU: Message du client
+        ]
+    
+    def validate_file(self, value):
+        """Validation du fichier"""
+        if not value:
+            raise serializers.ValidationError("Un fichier est requis")
+        
+        # Vérifier la taille (10MB max)
+        if value.size > 10 * 1024 * 1024:
+            raise serializers.ValidationError("Le fichier ne peut pas dépasser 10MB")
+        
+        # Vérifier l'extension
+        allowed_extensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'gif']
+        file_extension = value.name.split('.')[-1].lower() if '.' in value.name else ''
+        if file_extension not in allowed_extensions:
+            raise serializers.ValidationError(f"Type de fichier non autorisé: {value.name}")
+        
+        return value
+    
+    def validate_message_accompagnement(self, value):
+        """Validation du message d'accompagnement"""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Le message d'accompagnement est requis")
+        
+        if len(value.strip()) < 10:
+            raise serializers.ValidationError("Le message doit contenir au moins 10 caractères")
+        
+        return value.strip()
+
+
+# Serializer pour l'action d'approbation/rejet par l'admin
+class DocumentActionSerializer(serializers.Serializer):
+    """Serializer pour les actions admin sur les documents"""
+    action = serializers.ChoiceField(choices=['approve', 'reject'], required=True)
+    notes_admin = serializers.CharField(
+        required=False, 
+        allow_blank=True,
+        help_text="Notes administrateur (optionnel)"
+    )
+    motif_rejet = serializers.CharField(
+        required=False, 
+        allow_blank=True,
+        help_text="Motif de rejet (requis pour rejeter)"
+    )
+    
+    def validate(self, data):
+        """Validation selon l'action"""
+        action = data.get('action')
+        motif_rejet = data.get('motif_rejet', '').strip()
+        
+        if action == 'reject' and not motif_rejet:
+            raise serializers.ValidationError({
+                'motif_rejet': 'Le motif de rejet est requis pour rejeter un document'
+            })
+        
+        return data
 class ScrapedProjectCreateProjectSerializer(serializers.Serializer):
     """Serializer pour créer un projet Django depuis un projet scrapé"""
     consultant_id = serializers.IntegerField()
@@ -189,17 +394,6 @@ class DocumentTypeSerializer(serializers.ModelSerializer):
         model = DocumentType
         fields = '__all__'
 
-class DocumentSerializer(serializers.ModelSerializer):
-    document_type_name = serializers.CharField(source='document_type.name', read_only=True)
-    project_name = serializers.CharField(source='project.name', read_only=True)
-    uploaded_by_name = serializers.CharField(source='uploaded_by.full_name', read_only=True)
-    
-    class Meta:
-        model = Document
-        fields = ['id', 'name', 'file', 'status', 'date_soumission', 'date_expiration', 
-                 'notes', 'document_type', 'document_type_name', 'project', 'project_name',
-                 'uploaded_by_name']
-        read_only_fields = ['uploaded_by_name']
 
 # =============================================================================
 # SERIALIZERS POUR LES PROJETS DJANGO
@@ -360,3 +554,25 @@ class ScrapedProjectStatsSerializer(serializers.Serializer):
     needs_review = serializers.IntegerField()
     avg_completeness_score = serializers.FloatField()
     recent_sessions = ScrapingSessionSerializer(many=True)
+    
+
+
+
+class ProjectDocumentSubmissionSerializer(serializers.Serializer):
+    project_id = serializers.PrimaryKeyRelatedField(queryset=ScrapedProject.objects.all())
+    message = serializers.CharField(max_length=1000)
+    documents = serializers.ListField(
+        child=serializers.FileField(max_length=100, allow_empty_file=False),
+        min_length=1,
+        max_length=10
+    )
+    descriptions = serializers.ListField(
+        child=serializers.CharField(max_length=255, allow_blank=True),
+        min_length=1,
+        max_length=10
+    )
+
+    def validate(self, data):
+        if len(data['documents']) != len(data['descriptions']):
+            raise ValidationError("Number of documents and descriptions must match")
+        return data

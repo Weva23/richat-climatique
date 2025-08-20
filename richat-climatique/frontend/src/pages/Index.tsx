@@ -11,28 +11,12 @@ import CalendarSection from "@/components/Sections/CalendarSection";
 import SettingsSection from "@/components/Sections/SettingsSection";
 
 const Index = () => {
-  const [activeSection, setActiveSection] = useState("overview");
+  const [activeSection, setActiveSection] = useState("notifications");
 
   const renderSection = () => {
     switch (activeSection) {
-      case "overview":
-        return <OverviewSection />;
-      case "consultants":
-        return <ConsultantsSection />;
       case "notifications":
         return <NotificationsSection />;
-      case "documents":
-        return <DocumentsSection />;
-      case "analysis":
-        return <AnalysisSection />;
-      case "ready":
-        return <ReadySection />;
-      case "calendar":
-        return <CalendarSection />;
-      case "settings":
-        return <SettingsSection />;
-      default:
-        return <OverviewSection />;
     }
   };
 

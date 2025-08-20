@@ -88,15 +88,13 @@ const Header = ({ activeSection, onSectionChange }: HeaderProps) => {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
-            <Search className="w-5 h-5 text-primary" />
             <h1 className="text-xl font-semibold text-primary">Richat Funding Tracker</h1>
             
             {/* Indicateur de connexion backend */}
             <div className="flex items-center gap-1 ml-2">
               {backendConnected ? (
                 <>
-                  <Wifi className="w-3 h-3 text-green-500" />
-                  <span className="text-xs text-green-600">API</span>
+                  
                 </>
               ) : (
                 <>
@@ -127,6 +125,7 @@ const Header = ({ activeSection, onSectionChange }: HeaderProps) => {
             <Button 
               variant="ghost" 
               size="sm" 
+<<<<<<< HEAD
               className={location.pathname === "/dossiers-candidature" ? "bg-primary-light text-primary" : "text-muted-foreground"}
               onClick={() => navigate("/dossiers-candidature")}
             >
@@ -139,6 +138,8 @@ const Header = ({ activeSection, onSectionChange }: HeaderProps) => {
             <Button 
               variant="ghost" 
               size="sm" 
+=======
+>>>>>>> 3ba2d6bde43880a9fc36ede2f6988e2bfd295491
               className={location.pathname === "/scraped-projects" ? "bg-primary-light text-primary" : "text-muted-foreground"}
               onClick={() => navigate("/scraped-projects")}
             >
@@ -165,13 +166,6 @@ const Header = ({ activeSection, onSectionChange }: HeaderProps) => {
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Rechercher..."
-              className="pl-10 w-64"
-            />
-          </div>
           
  
           {/* Votre NotificationDropdown existant - maintenant connectÃ© au backend */}
