@@ -1,6 +1,10 @@
-// =============================================================================
+//            
+
+// HEADER.TSX - MISE Ã€ JOUR DE VOTRE VERSION EXISTANTE AVEC BACKEND
+
 // HEADER.TSX - VERSION AVEC NOTIFICATION UNIQUE POUR NOUVEAUX PROJETS
-// =============================================================================
+
+//            
 import { Search, User, Database, Wifi, WifiOff, Bell, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -95,7 +99,7 @@ const Header = ({ activeSection, onSectionChange }: HeaderProps) => {
               ) : (
                 <>
                   <WifiOff className="w-3 h-3 text-red-500" />
-                  <span className="text-xs text-red-600">Déconnecté</span>
+                  <span className="text-xs text-red-600">DÃ©connectÃ©</span>
                 </>
               )}
             </div>
@@ -121,26 +125,59 @@ const Header = ({ activeSection, onSectionChange }: HeaderProps) => {
             <Button 
               variant="ghost" 
               size="sm" 
+<<<<<<< HEAD
+              className={location.pathname === "/dossiers-candidature" ? "bg-primary-light text-primary" : "text-muted-foreground"}
+              onClick={() => navigate("/dossiers-candidature")}
+            >
+              Dossiers
+            </Button>
+ 
+            {/* Nouveau bouton pour les donnÃ©es scrapÃ©es */}
+ 
+ 
+            <Button 
+              variant="ghost" 
+              size="sm" 
+=======
+>>>>>>> 3ba2d6bde43880a9fc36ede2f6988e2bfd295491
               className={location.pathname === "/scraped-projects" ? "bg-primary-light text-primary" : "text-muted-foreground"}
               onClick={() => navigate("/scraped-projects")}
             >
               <Database className="w-4 h-4 mr-1" />
+ 
+              DonnÃ©es ScrapÃ©es
+ 
               Données Scrapées
               {newScrapedProjects && (
                 <span className="ml-2 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
               )}
+ 
             </Button>
+            {/* <Button 
+              variant="ghost" 
+              size="sm" 
+              className={location.pathname === "/project-requests" ? "bg-primary-light text-primary" : "text-muted-foreground"}
+              onClick={() => navigate("/project-requests")}
+            >
+              <Database className="w-4 h-4 mr-1" />
+              Gestion des Demandes 
+            </Button> */}
           </nav>
         </div>
 
         <div className="flex items-center gap-4">
           
+ 
+          {/* Votre NotificationDropdown existant - maintenant connectÃ© au backend */}
+          <NotificationDropdown />
+ 
           <div className="relative">
             <NotificationDropdown />
             {newScrapedProjects && (
               <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-ping"></div>
             )}
           </div>
+ 
           
           <Button 
             variant="ghost" 

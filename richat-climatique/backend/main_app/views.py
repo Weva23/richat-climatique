@@ -1,6 +1,6 @@
-# =============================================================================
+#            
 # FICHIER: main_app/views.py - SYNTAXE CORRIGÉE
-# =============================================================================
+#            
 from datetime import timedelta
 import os
 from django.forms import ValidationError
@@ -37,9 +37,9 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
-# =============================================================================
+#            
 # VUES D'AUTHENTIFICATION
-# =============================================================================
+#            
 class RegisterView(APIView):
     """Vue pour l'inscription - CLIENTS UNIQUEMENT"""
     permission_classes = [AllowAny]
@@ -212,9 +212,9 @@ def check_user_role(request):
         'redirect_url': '/admin-dashboard' if request.user.is_admin else '/client-dashboard'
     })
 
-# =============================================================================
+#            
 # VUES DE TEST POUR DEBUG
-# =============================================================================
+#            
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def auth_test(request):
@@ -238,9 +238,9 @@ def auth_debug(request):
         'method': request.method,
     })
 
-# =============================================================================
+#            
 # VIEWSETS POUR LES CONSULTANTS
-# =============================================================================
+#            
 class ConsultantViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet pour les consultants"""
     serializer_class = UserSerializer
@@ -254,21 +254,55 @@ class ConsultantViewSet(viewsets.ReadOnlyModelViewSet):
             )
         )
 
-# =============================================================================
+#            
 # VIEWSETS POUR LES PROJETS SCRAPÉS
-# =============================================================================
+#            
 class ScrapedProjectViewSet(viewsets.ModelViewSet):
+ 
+    """ViewSet pour les projets scrapés - SANS PAGINATION"""
+    queryset = ScrapedProject.objects.all()
+    serializer_class = ScrapedProjectSerializer
+    permission_classes = [AllowAny]
+ 
     """ViewSet pour les projets scrapés - VERSION CORRIGÉE"""
     queryset = ScrapedProject.objects.all()
     serializer_class = ScrapedProjectSerializer
     permission_classes = [AllowAny]
     authentication_classes = []
+ 
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['source', 'is_relevant_for_mauritania', 'needs_review', 'linked_project']
     search_fields = ['title', 'organization', 'description']
     ordering_fields = ['scraped_at', 'data_completeness_score', 'funding_amount']
     ordering = ['-scraped_at']
     
+ 
+    # ✅ DÉSACTIVER COMPLÈTEMENT LA PAGINATION
+    pagination_class = None
+    
+    def list(self, request, *args, **kwargs):
+        """Override complet pour retourner TOUS les projets"""
+        print(f"🔍 API appelée avec paramètres: {request.query_params}")
+        
+        # Appliquer les filtres
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # Compter le total
+        total_count = queryset.count()
+        print(f"📊 Total en base après filtres: {total_count}")
+        
+        # RETOURNER TOUS LES PROJETS SANS PAGINATION
+        serializer = self.get_serializer(queryset, many=True)
+        
+        print(f"✅ Retour de {len(serializer.data)} projets")
+        
+        return Response({
+            'count': total_count,
+            'next': None,
+            'previous': None,
+            'results': serializer.data
+        })
+ 
     @action(detail=True, methods=['get'])
     def full_details(self, request, pk=None):
         """Récupérer tous les détails d'un projet scrapé"""
@@ -404,9 +438,10 @@ class ScrapedProjectViewSet(viewsets.ModelViewSet):
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# =============================================================================
+ 
+#            
 # VIEWSETS POUR LES PROJETS DJANGO
-# =============================================================================
+#            
 class ProjectViewSet(viewsets.ModelViewSet):
     queryset = Project.objects.all().select_related('consultant').prefetch_related('documents')
     serializer_class = ProjectSerializer
@@ -468,6 +503,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 'error': 'Erreur lors du calcul des statistiques'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+<<<<<<< HEAD
 class ChangePasswordView(APIView):
     """Vue pour changer le mot de passe"""
     permission_classes = [IsAuthenticated]
@@ -590,8 +626,11 @@ class UploadProfilePictureView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # =============================================================================
+=======
+#            
+>>>>>>> c364c7e71f3977ed97e3213d2055219f56934eac
 # VIEWSETS POUR LES NOTIFICATIONS
-# =============================================================================
+#            
 class NotificationViewSet(viewsets.ModelViewSet):
     serializer_class = NotificationSerializer
     permission_classes = [AllowAny]  # Temporaire pour debug
@@ -644,9 +683,9 @@ class NotificationViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': 'Erreur lors du marquage'}, status=400)
 
-# =============================================================================
+#            
 # VIEWSETS POUR LES DOCUMENTS
-# =============================================================================
+#            
 class DocumentViewSet(viewsets.ModelViewSet):
     queryset = Document.objects.all().select_related('project', 'document_type', 'uploaded_by')
     serializer_class = DocumentSerializer
@@ -661,9 +700,9 @@ class DocumentTypeViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = DocumentTypeSerializer
     permission_classes = [AllowAny]  # Temporaire pour debug
 
-# =============================================================================
+#            
 # VIEWSETS POUR LES SESSIONS DE SCRAPING
-# =============================================================================
+#            
 class ScrapingSessionViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet pour les sessions de scraping"""
     queryset = ScrapingSession.objects.all()
@@ -686,9 +725,9 @@ class ProjectAlertStatsView(APIView):
             'total_funding': "€2.5M+"  # À remplacer par un calcul réel
         }
         return Response(stats)
-# =============================================================================
+#            
 # VIEWSETS POUR LES DEMANDES DE PROJETS
-# =============================================================================
+#            
 class ProjectRequestViewSet(viewsets.ModelViewSet):
     """ViewSet pour les demandes de projets"""
     queryset = ProjectRequest.objects.all().select_related('client', 'processed_by').prefetch_related('projects')
@@ -783,16 +822,16 @@ class ProjectRequestViewSet(viewsets.ModelViewSet):
             logger.error(f"Erreur stats demandes: {e}")
             return Response({'error': 'Erreur lors du calcul des statistiques'}, status=500)
         
-# =============================================================================
+#            
 # AJOUT AU FICHIER: main_app/views.py - VUES POUR LES ALERTES PROJETS
-# =============================================================================
+#            
 
 # Ajouter ces imports en haut du fichier
 
 
-# =============================================================================
+#            
 # VIEWSET POUR LES ALERTES PROJETS
-# =============================================================================
+#            
 class ProjectAlertViewSet(viewsets.ModelViewSet):
     """ViewSet pour les alertes de projets"""
     queryset = ProjectAlert.objects.all().select_related('scraped_project')

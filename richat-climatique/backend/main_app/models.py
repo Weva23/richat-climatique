@@ -101,11 +101,14 @@ class ScrapedProject(models.Model):
         ('GEF', 'Global Environment Facility'),
         ('GCF', 'Green Climate Fund'),
         ('OTHER', 'Autre source'),
+        ('CLIMATE_FUND', 'Climate Funds Update'),
     ]
     
     # Informations de base
     title = models.CharField(max_length=500, verbose_name="Titre")
-    source = models.CharField(max_length=10, choices=SOURCE_CHOICES, verbose_name="Source")
+    # source = models.CharField(max_length=10, choices=SOURCE_CHOICES, verbose_name="Source")
+    source = models.CharField(max_length=15, choices=SOURCE_CHOICES, verbose_name="Source")
+    
     source_url = models.URLField(max_length=1000, blank=True, verbose_name="URL source")
     source_id = models.CharField(max_length=100, blank=True, verbose_name="ID source")
     
@@ -276,7 +279,13 @@ class Project(models.Model):
     
     # Champs pour le lien avec les données scrapées
     is_from_scraping = models.BooleanField(default=False, verbose_name="Créé par scraping")
-    original_source = models.CharField(max_length=10, blank=True, choices=ScrapedProject.SOURCE_CHOICES, verbose_name="Source originale")
+    # original_source = models.CharField(max_length=10, blank=True, choices=ScrapedProject.SOURCE_CHOICES, verbose_name="Source originale")
+    original_source = models.CharField(
+        max_length=15,  # Au lieu de 10
+        blank=True, 
+        choices=ScrapedProject.SOURCE_CHOICES, 
+        verbose_name="Source originale"
+    )
     source_reference = models.CharField(max_length=100, blank=True, verbose_name="Référence source")
     
     created_at = models.DateTimeField(auto_now_add=True)
@@ -637,7 +646,12 @@ class Notification(models.Model):
 # =============================================================================
 class ScrapingSession(models.Model):
     """Modèle pour tracker les sessions de scraping"""
-    source = models.CharField(max_length=10, choices=ScrapedProject.SOURCE_CHOICES, verbose_name="Source")
+    # source = models.CharField(max_length=10, choices=ScrapedProject.SOURCE_CHOICES, verbose_name="Source")
+    source = models.CharField(
+        max_length=15,  # Au lieu de 10
+        choices=ScrapedProject.SOURCE_CHOICES, 
+        verbose_name="Source"
+    )
     started_at = models.DateTimeField(auto_now_add=True, verbose_name="Démarrée le")
     completed_at = models.DateTimeField(null=True, blank=True, verbose_name="Terminée le")
     
